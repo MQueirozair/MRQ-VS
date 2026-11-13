@@ -85,7 +85,7 @@ function montar(dados, opcoes) {
     "studioTom", "studioBpm", "studioDur", "masterVol", "masterVal",
     "playG", "trStop", "trInicio", "trVoltar", "trAvancar", "trAnterior",
     "trProximo", "trLoop", "trSecao", "trAtual", "trTotal", "trCompasso",
-    "trTom", "trBpm", "trContagem", "studioSalvo", "legendaStudio",
+    "trTom", "trBpm", "trContagem", "trContagemTexto", "studioSalvo", "legendaStudio",
     "fCompasso", "fBpm", "fTom", "fTomMenos", "fTomMais", "fZoomRange",
     "fZoomMenos", "fZoomMais", "fZoomTudo", "fWavZoom", "fAltura", "fMenu",
     "fMetro", "fLoop", "fMarcar", "fImportarFaixa", "fImportarInput",

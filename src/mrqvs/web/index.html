@@ -542,8 +542,12 @@
   .tr-info-grupo{display:flex;align-items:center;gap:7px;margin-left:auto;flex-wrap:wrap}
   .tr-info{font-size:11.5px;color:var(--muted);border:1px solid var(--line);
     background:#141b23;border-radius:7px;padding:5px 9px;white-space:nowrap;font-family:inherit}
-  .tr-contagem{cursor:pointer}
+  .tr-contagem{cursor:pointer;display:inline-flex;align-items:center;gap:5px}
   .tr-contagem:hover{color:var(--text);border-color:#3a4757}
+  .tr-contagem .ic-contagem{width:15px;height:15px;flex:0 0 auto;fill:none;
+    stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+  .tr-contagem.on{color:#9fe8c4;border-color:#2c5f4a;background:#15251c}
+  .tr-contagem.on .ic-contagem{stroke:#7fe0b0}
   .studio-salvo{position:absolute;right:12px;bottom:60px;z-index:40;
     background:#15251c;border:1px solid #2c5f4a;color:#9fe8c4;
     border-radius:8px;padding:7px 11px;font-size:11.5px;
@@ -1112,8 +1116,14 @@ python -m pip install demucs</pre>
         <div class="tr-info-grupo">
           <div class="tr-info" id="trTom" title="Tom da cifra">♫ —</div>
           <div class="tr-info" id="trBpm" title="Andamento">♩ — BPM</div>
+          <!-- contagem: os três pulsos eram CARACTERES no rótulo e a leitura
+               saía como um número colado na frase; aqui são desenho (svg) e
+               um span só com o estado, que é o que o leitor de tela lê -->
           <button class="tr-info tr-contagem" id="trContagem" type="button"
-                  title="Pré-contagem antes de cada seção">123 Sem Pré-contagem</button>
+                  title="Pré-contagem antes de começar (0 a 4 compassos)"
+                  aria-label="Pré-contagem">
+            <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-contagem"><path d="M6 9v6M12 7v10M18 9v6"/></svg><span id="trContagemTexto">sem contagem</span>
+          </button>
         </div>
       </div>
       <div class="studio-salvo" id="studioSalvo" hidden></div>
@@ -4042,8 +4052,17 @@ function studioAtualizarTransporte(){
   if ($("trBpm")) $("trBpm").textContent = "♩ " + Math.round(Studio.bpm || 0) + " BPM";
   if ($("studioBpm")) $("studioBpm").textContent = "⏱ " + Math.round(Studio.bpm || 0) + " BPM";
   if ($("studioTom")) $("studioTom").textContent = "♫ " + (Studio.tomExibido || Studio.tom || "—");
-  if ($("trContagem")) $("trContagem").textContent =
-    Studio.contagem ? `123 Pré-contagem ${Studio.contagem}${Studio.contagem > 1 ? " compassos" : " compasso"}` : "123 Sem Pré-contagem";
+  if ($("trContagemTexto")){
+    $("trContagemTexto").textContent = Studio.contagem
+      ? `${Studio.contagem} ${Studio.contagem > 1 ? "compassos" : "compasso"} de contagem`
+      : "sem contagem";
+  }
+  if ($("trContagem")){
+    $("trContagem").classList.toggle("on", !!Studio.contagem);
+    $("trContagem").title = Studio.contagem
+      ? `Pré-contagem de ${Studio.contagem} ${Studio.contagem > 1 ? "compassos" : "compasso"} (clique para mudar)`
+      : "Pré-contagem desligada — clique para ligar";
+  }
   if ($("painelFormula")) $("painelFormula").textContent = `${Studio.compasso}/${denominadorCompasso()}`;
 }
 
