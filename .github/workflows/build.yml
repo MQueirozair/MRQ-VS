@@ -23,7 +23,38 @@ jobs:
       - run: python -m pip install -U pip
       - run: python -m pip install -e ".[dev,youtube]"
       - run: ruff check src tests
-      - run: python -m pytest -q
+      - name: Testes
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest -q --tb=short 2>&1 | tee /tmp/pytest.log
+      # Os logs brutos do job ficam no Azure Blob (inacessível em ambientes
+      # restritos). Transformar as falhas em ANOTAÇÕES do check faz o motivo
+      # aparecer direto na página do PR e na API de check-runs.
+      - name: Anotar falhas dos testes
+        if: failure()
+        shell: bash
+        run: |
+          set -e
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          log = Path("/tmp/pytest.log")
+          if not log.is_file():
+              raise SystemExit(0)
+          texto = log.read_text(encoding="utf-8", errors="replace")
+          for linha in texto.splitlines():
+              if linha.startswith("FAILED"):
+                  msg = linha.replace("::", " - ").replace("%", "%25")
+                  print("::error title=Pytest::" + msg[:400])
+          partes = re.split(r"_{5,} (.+?) _{5,}", texto)
+          for i in range(1, min(len(partes) - 1, 24), 2):
+              corpo = [t.strip() for t in partes[i + 1].strip().splitlines() if t.strip()]
+              detalhe = " | ".join(corpo[-5:])[:800]
+              detalhe = detalhe.replace("%", "%25").replace("\n", " ")
+              print("::error title=" + partes[i][:80].replace("%", "%25") + "::" + detalhe)
+          PY
 
   binary:
     needs: test
