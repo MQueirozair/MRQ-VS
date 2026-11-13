@@ -14,12 +14,12 @@ python -m mrqvs.release
 git add -A && git commit -m "..." && git push
 
 # 3. crie a tag: isso dispara build.yml -> test, binary (3 SOs + Setup Windows), portable, release
-git tag v0.1.24
-git push origin v0.1.24
+git tag v0.1.25
+git push origin v0.1.25
 ```
 
 Em ~5 minutos o release aparece em
-`https://github.com/MQueirozair/MRQ-VS/releases/tag/v0.1.24` com:
+`https://github.com/MQueirozair/MRQ-VS/releases/tag/v0.1.25` com:
 
 | Arquivo | Origem |
 |---|---|
@@ -27,8 +27,8 @@ Em ~5 minutos o release aparece em
 | `mrq-vs-windows-x64.exe` | PyInstaller portátil no `windows-latest` |
 | `mrq-vs-macos-arm64` | PyInstaller no `macos-latest` (Apple Silicon) |
 | `mrq-vs-linux-x64` | PyInstaller no `ubuntu-latest` |
-| `mrq-vs-0.1.24.pyz` | zipapp (roda em qualquer SO com Python 3.10+) |
-| `mrq-vs-0.1.24-linux-x64.zip` | pyz + LEIA-ME + licença |
+| `mrq-vs-0.1.25.pyz` | zipapp (roda em qualquer SO com Python 3.10+) |
+| `mrq-vs-0.1.25-linux-x64.zip` | pyz + LEIA-ME + licença |
 | `release-manifest.json` | sha256 de cada artefato |
 | `SHA256SUMS.txt` | sha256 de **todos** os arquivos do release |
 
