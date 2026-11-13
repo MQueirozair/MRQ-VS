@@ -1,0 +1,128 @@
+name: build
+
+# Três alvos, como o app promete: Windows, macOS e Linux.
+# O "instalador" é um executável único (PyInstaller --onefile) publicado como
+# artefato em toda push e como asset em toda tag v*.*.*.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -U pip
+      - run: python -m pip install -e ".[dev,youtube]"
+      - run: ruff check src tests
+      - run: python -m pytest -q
+
+  binary:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows-x64
+            sep: ";"
+            icon: "--icon windows/mrq-vs.ico"
+            exe: dist/mrq-vs.exe
+          - os: macos-latest
+            name: macOS-arm64
+            sep: ":"
+            icon: ""
+            exe: dist/mrq-vs
+          - os: ubuntu-latest
+            name: Linux-x64
+            sep: ":"
+            icon: ""
+            exe: dist/mrq-vs
+    runs-on: ${{ matrix.os }}
+    env:
+      PYINSTALLER_CONFIG_DIR: ${{ github.workspace }}/.pyinstaller
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependências
+        run: |
+          python -m pip install -U pip
+          python -m pip install -e . pyinstaller
+      - name: Empacotar
+        shell: bash
+        run: |
+          pyinstaller --onefile --console --name mrq-vs \
+            ${{ matrix.icon }} \
+            --collect-all soundfile \
+            --add-data "src/mrqvs/web/index.html${{ matrix.sep }}mrqvs/web" \
+            --add-data "src/mrqvs/web/favicon.ico${{ matrix.sep }}mrqvs/web" \
+            --add-data "src/mrqvs/web/icone-192.png${{ matrix.sep }}mrqvs/web" \
+            --add-data "src/mrqvs/web/icone-512.png${{ matrix.sep }}mrqvs/web" \
+            src/mrqvs/_build.py
+      - name: Conferir o binário
+        shell: bash
+        run: |
+          "${{ matrix.exe }}" --version
+          "${{ matrix.exe }}" stems | head -3
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrq-vs-${{ matrix.name }}
+          path: ${{ matrix.exe }}
+
+  # Pacote portátil (.pyz + zip + manifesto com sha256) montado aqui mesmo,
+  # no mesmo runner Linux, e anexado ao release junto com os binários.
+  portable:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Gerar pacotes e conferir
+        run: python -m mrqvs.release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mrq-vs-portable
+          path: |
+            dist/mrq-vs-*.pyz
+            dist/mrq-vs-*-linux-x64.zip
+            dist/release-manifest.json
+
+  release:
+    needs: [binary, portable]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Empacotar nomes estáveis
+        run: |
+          mkdir -p out
+          cp dist/mrq-vs-Windows-x64/*.exe out/mrq-vs-windows-x64.exe
+          cp dist/mrq-vs-macOS-arm64/mrq-vs out/mrq-vs-macos-arm64
+          cp dist/mrq-vs-Linux-x64/mrq-vs out/mrq-vs-linux-x64
+          chmod +x out/mrq-vs-macos-arm64 out/mrq-vs-linux-x64
+          cp dist/mrq-vs-portable/mrq-vs-*.pyz out/
+          cp dist/mrq-vs-portable/mrq-vs-*-linux-x64.zip out/
+          cp dist/mrq-vs-portable/release-manifest.json out/
+          cd out && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

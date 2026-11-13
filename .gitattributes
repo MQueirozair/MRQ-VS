@@ -1,0 +1,11 @@
+# Binários e imagens do pacote não devem ter quebras de linha alteradas pelo git.
+*.exe   binary
+*.ico   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.pyz   binary
+*.sh    text eol=lf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf

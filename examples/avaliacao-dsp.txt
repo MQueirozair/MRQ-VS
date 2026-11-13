@@ -1,0 +1,10 @@
+SDR (dB, maior é melhor)
+
+  bass              4.43  ##################
+  drums             6.63  #######################
+  other             3.33  ################
+  vocals            4.20  ##################
+  media             4.65  ###################
+
+Referência de leitura: SDR < 0 dB = o stem está pior que silêncio;
+3–6 dB = separação audível com vazamento; 8+ dB = boa; 10+ = muito boa.
