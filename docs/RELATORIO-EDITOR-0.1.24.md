@@ -92,7 +92,14 @@ Piano, Outros, extras, Instrumental, Mix), altura única para painel e trilha,
 scroll espelhado nos dois sentidos, fila de decodificação com um contexto só,
 ladrilhos de canvas e zoom da onda na **amplitude vertical** (não no tempo).
 
-### 2.5 Duração travada em 0:24 (captura da 0.1.23)
+### 2.5 Rótulo da pré-contagem ilegível
+O botão da barra inferior trazia os três pulsos do metrônomo **como
+caracteres**, então a leitura saía `123 Sem Pré-contagem` — visualmente um
+número colado na frase, e no leitor de tela um número solto. Agora os pulsos
+são desenho (SVG inline) e o texto é só o estado (`sem contagem`,
+`2 compassos de contagem`), com `.on` e dica próprios.
+
+### 2.6 Duração travada em 0:24 (captura da 0.1.23)
 `loadedmetadata` só atualizava a duração se o arquivo fosse **mais longo** que
 o `projeto.json`. Com JSON de 24 s e áudio de 6:38, ficava 24 s para sempre.
 Corrigido para valer para mais **e para menos**.

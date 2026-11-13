@@ -1295,3 +1295,60 @@ def test_marcadores_de_secao_e_audio_de_guia_sao_independentes():
     assert r["depois"]["marcas"] == 1
     assert r["depois"]["mesmoAudio"] is True
     assert r["depois"]["url"] == "/api/file?p=/tmp/guia-apoio/guia.wav"
+
+
+def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
+    """A barra dizia "123 Sem Pré-contagem": os pulsos eram caracteres.
+
+    Nas capturas do usuário e na 0.1.23 o rótulo carregava os três pulsos
+    como texto, então a leitura saía como um número colado na frase. O botão
+    passou a ter ícone próprio e um `<span>` com o estado; este teste percorre
+    o ciclo 0 → 1 → 2 → 0 e confere texto, classe e dica a cada passo.
+    """
+    dados = {
+        "titulo": "Contagem", "nome_pasta": "C", "pasta": "/tmp/c", "apoio": "",
+        "bpm": 100, "tonalidade": "C maior", "compasso": 4, "denominador": 4,
+        "duracao": 8,
+        "estudio": {"batidas": [], "compasso": 4, "bpm": 100, "duracao": 8,
+                    "tonalidade": "C maior", "acordes": [], "secoes": []},
+        "arquivos": {"mix": {"nome": "c_00_mix.wav", "audio": True,
+                             "url": "/api/file?p=/tmp/c/00_mix.wav"}},
+    }
+    script = r"""
+        const {montar} = require("./harness");
+        const h = montar(__DADOS__);
+        const S = h.Studio, sb = h.sandbox, doc = h.doc;
+        const lido = () => ({
+          texto: doc.getElementById("trContagemTexto").textContent,
+          ligado: doc.getElementById("trContagem").classList.contains("on"),
+          dica: doc.getElementById("trContagem").title,
+          contagem: S.contagem,
+        });
+        const passos = [];
+        S.contagem = 0; sb.studioAtualizarTransporte();
+        passos.push(lido());
+        for (let i = 0; i < 3; i++){
+          doc.getElementById("trContagem").onclick();
+          passos.push(lido());
+        }
+        // o rótulo no markup: só o span do estado, sem os pulsos colados
+        const html = require("fs").readFileSync(
+          require("path").resolve(__dirname, "..", "..", "src", "mrqvs", "web", "index.html"),
+          "utf8");
+        const m = /id="trContagem"[\s\S]*?>([\s\S]*?)<\/button>/.exec(html);
+        const markup = m ? m[1].replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim() : "?";
+        console.log(JSON.stringify({passos, markup,
+          tem123: /(^|\s)123(\s|$)/.test(markup)}));
+    """
+    saida = _rodar_node(script.replace("__DADOS__", json.dumps(dados)))
+    r = json.loads(saida.strip().splitlines()[-1])
+    p = r["passos"]
+    assert p[0]["texto"] == "sem contagem" and p[0]["ligado"] is False
+    assert p[1]["contagem"] == 1 and p[1]["texto"] == "1 compasso de contagem"
+    assert p[1]["ligado"] is True and "1 compasso" in p[1]["dica"]
+    assert p[2]["contagem"] == 2 and p[2]["texto"] == "2 compassos de contagem"
+    assert p[3]["contagem"] == 0 and p[3]["texto"] == "sem contagem"
+    assert p[3]["ligado"] is False
+    # no markup sobra só o span do estado: nada de pulsos como texto
+    assert r["markup"] == "sem contagem"
+    assert r["tem123"] is False
