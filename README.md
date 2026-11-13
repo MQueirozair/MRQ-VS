@@ -31,7 +31,8 @@ Não precisa de Python: cada release traz um executável único.
 
 | Sistema | Instalação em uma linha |
 |---|---|
-| **Windows 10/11 (x64)** | `irm https://raw.githubusercontent.com/MQueirozair/MRQ-VS/main/install.ps1 \| iex` |
+| **Windows 10/11 (x64) — instalador** | baixe [`MRQ-VS-Setup-windows-x64.exe`](https://github.com/MQueirozair/MRQ-VS/releases/latest/download/MRQ-VS-Setup-windows-x64.exe) e dê duplo clique — cria o ícone na Área de Trabalho |
+| **Windows 10/11 (x64) — por script** | `irm https://raw.githubusercontent.com/MQueirozair/MRQ-VS/main/install.ps1 \| iex` |
 | **macOS (Apple Silicon)** | `curl -fsSL https://raw.githubusercontent.com/MQueirozair/MRQ-VS/main/install.sh \| sh` |
 | **Linux (x64)** | `curl -fsSL https://raw.githubusercontent.com/MQueirozair/MRQ-VS/main/install.sh \| sh` |
 
@@ -39,7 +40,8 @@ Enquanto não existe release publicada, os artefatos gerados nesta sessão
 estão em [`download/`](download/) (pacote `.pyz` + zip + manifesto).
 
 Ou baixe direto na página de releases: **`https://github.com/MQueirozair/MRQ-VS/releases/latest`**
-— `mrq-vs-windows-x64.exe`, `mrq-vs-macos-arm64`, `mrq-vs-linux-x64`, mais
+— `MRQ-VS-Setup-windows-x64.exe` (instalador com atalho na Área de Trabalho),
+`mrq-vs-windows-x64.exe`, `mrq-vs-macos-arm64`, `mrq-vs-linux-x64`, mais
 `SHA256SUMS.txt` para conferir o download.
 
 Os instaladores fazem três coisas: baixam o binário, colocam numa pasta do
@@ -49,8 +51,11 @@ de propósito: são os programas que baixam/convertem mídia).
 
 Detalhes por sistema:
 
-- **Windows**: o `.exe` é portátil, sem instalador MSI. Se preferir não usar
-  PowerShell, baixe o `.exe` e rode direto.
+- **Windows**: use o `MRQ-VS-Setup-windows-x64.exe` (Inno Setup, instala em
+  `%LOCALAPPDATA%\MRQ Audio Studio` sem pedir Administrador e cria o ícone na
+  Área de Trabalho e no Menu Iniciar). Para criar o atalho depois:
+  `mrq-vs atalho`, ou **Exportar → Criar ícone na Área de Trabalho** dentro do
+  Studio. Se preferir não instalar nada, o `mrq-vs-windows-x64.exe` é portátil.
 - **macOS**: o binário não é assinado (sem conta de desenvolvedor Apple). Se o
   Gatekeeper reclamar: `xattr -d com.apple.quarantine ~/.local/bin/mrq-vs`.
   Para IA no Mac, `python3 -m pip install demucs` no Python do sistema — o

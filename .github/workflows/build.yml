@@ -1,8 +1,7 @@
 name: build
 
-# Três alvos, como o app promete: Windows, macOS e Linux.
-# O "instalador" é um executável único (PyInstaller --onefile) publicado como
-# artefato em toda push e como asset em toda tag v*.*.*.
+# Três alvos nativos (Windows, macOS e Linux) + instalador Windows Setup (.exe)
+# com atalho automático na Área de Trabalho e Menu Iniciar.
 on:
   push:
     branches: [main]
@@ -75,11 +74,35 @@ jobs:
         run: |
           "${{ matrix.exe }}" --version
           "${{ matrix.exe }}" stems | head -3
+      - name: Gerar instalador Windows Setup (.exe com ícone na Área de Trabalho)
+        if: matrix.name == 'Windows-x64'
+        shell: pwsh
+        run: |
+          $ver = (python -c "import mrqvs; print(mrqvs.__version__)").Trim()
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+          if (-not $iscc) {
+            $cand = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            if (Test-Path $cand) { $iscc = $cand }
+          }
+          if (-not $iscc) {
+            choco install innosetup -y --no-progress
+            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          }
+          & $iscc "/DMyAppVersion=$ver" "windows\installer.iss"
+          if (-not (Test-Path "dist\MRQ-VS-Setup-windows-x64.exe")) {
+            throw "Instalador MRQ-VS-Setup-windows-x64.exe não foi gerado"
+          }
       - name: Publicar artefato
         uses: actions/upload-artifact@v4
         with:
           name: mrq-vs-${{ matrix.name }}
           path: ${{ matrix.exe }}
+      - name: Publicar instalador Windows Setup
+        if: matrix.name == 'Windows-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mrq-vs-Windows-Setup
+          path: dist/MRQ-VS-Setup-windows-x64.exe
 
   # Pacote portátil (.pyz + zip + manifesto com sha256) montado aqui mesmo,
   # no mesmo runner Linux, e anexado ao release junto com os binários.
@@ -114,6 +137,7 @@ jobs:
       - name: Empacotar nomes estáveis
         run: |
           mkdir -p out
+          cp dist/mrq-vs-Windows-Setup/MRQ-VS-Setup-windows-x64.exe out/MRQ-VS-Setup-windows-x64.exe
           cp dist/mrq-vs-Windows-x64/*.exe out/mrq-vs-windows-x64.exe
           cp dist/mrq-vs-macOS-arm64/mrq-vs out/mrq-vs-macos-arm64
           cp dist/mrq-vs-Linux-x64/mrq-vs out/mrq-vs-linux-x64

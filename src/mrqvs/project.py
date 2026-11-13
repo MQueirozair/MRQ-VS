@@ -401,16 +401,15 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             # downbeats de verdade, e é o único jeito confiável de acertar o
             # 1º tempo em música sem bateria. Sem ele instalado, cai na
             # heurística de acento — que funciona e diz a confiança.
-            modelo = acordes_mod.compasso_com_modelo(audio_path)
+            modelo = acordes_mod.compasso_e_grade_do_modelo(audio_path)
             if modelo:
-                compasso, compasso_conf, _downbeats = modelo
+                compasso, compasso_conf, _downbeats, grade_modelo = modelo
                 # a grade do modelo é melhor que a regular: usa as batidas
-                # reais dele quando elas cobrem a música
-                analysed.tempo.beat_times = acordes_mod.batidas_do_modelo(
-                    audio_path
-                ) or analysed.tempo.beat_times
+                # reais dele quando elas cobrem a música. UMA passada do modelo
+                # para fórmula e grade (antes eram duas, o dobro do tempo).
+                analysed.tempo.beat_times = grade_modelo or analysed.tempo.beat_times
                 compasso_conf = max(compasso_conf, 0.6)
-                say(f"compasso pelo modelo: {compasso}/4 (confiança {compasso_conf:.2f})")
+                say(f"compasso pelo modelo: {compasso} (confiança {compasso_conf:.2f})")
                 compasso_por_modelo = True
             else:
                 compasso, compasso_conf = acordes_mod.compasso(
@@ -482,6 +481,10 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
         studio = StudioData(
             batidas=list(analysed.tempo.beat_times),
             compasso=compasso,
+            # 7/8 e 6/8 usam colcheia como unidade; 3/4 e 4/4 usam semínima.
+            # Sem este campo o editor lia 7 batidas por compasso como 7/4 e a
+            # régua ficava com o dobro do tamanho do áudio.
+            denominador=8 if compasso in (6, 7, 9, 12) else 4,
             compasso_confianca=compasso_conf,
             acordes=acordes,
             secoes=secoes_studio,

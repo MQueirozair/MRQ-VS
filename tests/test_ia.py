@@ -168,9 +168,12 @@ def test_instalar_publica_progresso_e_termina_mesmo_falhando(monkeypatch):
     vistos = []
 
     def falso(alvo, dizer, forcar):
+        # o passo do meio é lento de propósito: dá tempo de a tela amostrar
+        # mais de um valor (antes o teste podia ver só o primeiro e falhar)
         dizer(0.1, "baixando…")
-        time.sleep(0.05)
+        time.sleep(0.2)
         dizer(0.5, "instalando demucs…")
+        time.sleep(0.2)
         raise ai.IAError("falha simulada de rede")
 
     monkeypatch.setattr(ai, "_instalar_de_verdade", falso)
@@ -184,6 +187,12 @@ def test_instalar_publica_progresso_e_termina_mesmo_falhando(monkeypatch):
 
     t = threading.Thread(target=alvo)
     t.start()
+    # espera a instalação começar antes de amostrar: máquina rápida podia
+    # terminar antes da primeira leitura e o teste falhava sem defeito nenhum
+    for _ in range(200):
+        if ai.estado().get("rodando"):
+            break
+        time.sleep(0.005)
     while t.is_alive():
         vistos.append(ai.estado()["fracao"])
         time.sleep(0.01)

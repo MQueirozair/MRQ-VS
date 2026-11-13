@@ -445,6 +445,8 @@ def compasso_com_modelo(
     downbeats = [float(d) for d in downbeats]
     if len(batidas) < 8 or len(downbeats) < 3:
         return None
+    # reaproveita a grade desta execução (evita rodar o modelo de novo)
+    _cache_batidas[str(caminho_audio)] = batidas
     # O compasso é a distância média ENTRE downbeats, em batidas. Se a
     # distância varia muito, o modelo está inseguro (mudança de compasso,
     # rubato): devolve confiança baixa em vez de fingir precisão.
@@ -457,13 +459,36 @@ def compasso_com_modelo(
         return None
     passos.sort()
     mediana = passos[len(passos) // 2]
-    if mediana not in (2, 3, 4):
-        # 6/8 e 12/8 existem, mas o clique deles é 2 ou 3 por tempo; escrever
-        # "6/4" na tela confundiria mais do que ajudaria.
-        mediana = 4 if mediana > 4 else mediana
+    if mediana not in (2, 3, 4, 5, 6, 7, 9, 12):
+        # fórmula fora do comum (rubato, mudança de compasso): fica com 4, que
+        # é o palpite mais frequente em música popular — e a tela deixa mudar
+        mediana = 4
     iguais = sum(1 for p in passos if p == mediana)
     confianca = round(iguais / len(passos), 2)
     return int(mediana), confianca, downbeats
+
+
+def compasso_e_grade_do_modelo(
+    caminho_audio, timeout: int = 300
+) -> tuple[int, float, list[float], list[float]] | None:
+    """Fórmula, confiança, downbeats E grade de batidas numa passada só.
+
+    `compasso_com_modelo` + `batidas_do_modelo` rodavam o transformer duas
+    vezes para a mesma música (dobro do tempo). Aqui a segunda chamada
+    devolve em milissegundos, porque o resultado fica em cache por arquivo.
+    """
+    resultado = compasso_com_modelo(caminho_audio, timeout=timeout)
+    if not resultado:
+        return None
+    compasso, confianca, downbeats = resultado
+    grade = _cache_batidas.get(str(caminho_audio))
+    if grade is None:
+        grade = batidas_do_modelo(caminho_audio)
+    return compasso, confianca, downbeats, grade
+
+
+#: grade de batidas já calculada por arquivo (o modelo é caro)
+_cache_batidas: dict[str, list[float]] = {}
 
 
 def batidas_do_modelo(caminho_audio) -> list[float]:
@@ -479,7 +504,9 @@ def batidas_do_modelo(caminho_audio) -> list[float]:
 
         modelo = File2Beats(checkpoint_path="final0", device="cpu", dbn=False)
         batidas, _ = modelo(str(caminho_audio))
-        return [float(b) for b in batidas]
+        grade = [float(b) for b in batidas]
+        _cache_batidas[str(caminho_audio)] = grade
+        return grade
     except Exception:  # noqa: BLE001
         return []
 
