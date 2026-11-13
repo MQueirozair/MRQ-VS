@@ -1,0 +1,41 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+.pyinstaller/
+*.egg-info/
+src/*.egg-info/
+download/mrq-vs-*.pyz
+out/
+!out/.gitkeep
+
+# dados gerados em tempo de execução (biblioteca, uploads e ambiente de IA)
+mrq-ai/
+musicas/
+envios/
+biblioteca.json
+biblioteca.tmp
+
+# arquivos de mídia soltos
+*.wav
+*.mp3
+*.mp4
+*.m4a
+*.webm
+*.flac
+*.ogg
+*.opus
+*.aac
+!tests/fixtures/**/*.wav
+
+# artefatos locais de build (PyInstaller)
+lm/
+mrq-vs.spec
+# binários grandes ficam fora do git (publicados no Drive/Releases)
+download/*.zip
+download/*.pyz
+download/*.bundle
