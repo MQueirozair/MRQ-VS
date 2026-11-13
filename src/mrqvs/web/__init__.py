@@ -177,6 +177,10 @@ class Handler(BaseHTTPRequestHandler):
             self._edicoes_salvar(self._read_json())
         elif rota == "/api/exportar-mix":
             self._exportar_mix(self._read_json())
+        elif rota == "/api/importar-faixa":
+            self._importar_faixa(self._read_json())
+        elif rota == "/api/atalho":
+            self._criar_atalho()
         else:
             self._json({"erro": "rota não encontrada"}, 404)
 
@@ -715,6 +719,85 @@ class Handler(BaseHTTPRequestHandler):
         resultado["url"] = f"/api/file?p={_relativo(destino, _OUT_ROOT)}"
         resultado["nome"] = destino.name
         self._json(resultado)
+
+    def _importar_faixa(self, payload: dict) -> None:
+        """Importa uma faixa extra para dentro da pasta de áudio do projeto aberto."""
+        import re
+        import shutil
+
+        from .. import biblioteca, upload as upload_mod
+
+        pasta_str = str(payload.get("pasta") or "").strip()
+        envio_id = str(payload.get("envio") or "").strip()
+        if not pasta_str or not Path(pasta_str).is_dir():
+            self._json({"erro": "pasta da música não encontrada"}, 404)
+            return
+        pasta = Path(pasta_str)
+        if not _pode_servir(pasta):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        if not envio_id:
+            self._json({"erro": "informe o envio da faixa"}, 400)
+            return
+        try:
+            pronto = upload_mod.preparar(envio_id)
+        except upload_mod.UploadError as exc:
+            self._json({"erro": str(exc)}, 400)
+            return
+        origem_audio = Path(pronto["audio"])
+        bruto_nome = str(payload.get("nome") or pronto.get("titulo") or origem_audio.stem).strip()
+        base_segura = re.sub(r"[^A-Za-z0-9À-ÿ _-]+", "", Path(bruto_nome).stem).strip() or "Faixa_Extra"
+        base_arq = re.sub(r"\s+", "_", base_segura)
+        ext = origem_audio.suffix.lower() or ".wav"
+        destino = pasta / f"{base_arq}{ext}"
+        contador = 2
+        while destino.exists():
+            destino = pasta / f"{base_arq}_{contador}{ext}"
+            contador += 1
+        try:
+            shutil.copy2(origem_audio, destino)
+        except OSError as exc:
+            self._json({"erro": f"não consegui copiar a faixa: {exc}"}, 500)
+            return
+        finally:
+            upload_mod.limpar(envio_id)
+        try:
+            existentes = biblioteca.listar(limite=500)
+            achada = next((v for v in existentes if v.get("id") == str(pasta)), None)
+            if achada:
+                biblioteca.registrar(
+                    pasta,
+                    apoio=achada.get("apoio") or None,
+                    titulo=achada.get("titulo") or pasta.name,
+                    bpm=achada.get("bpm"),
+                    tom=achada.get("tom") or "",
+                    motor=achada.get("motor") or "",
+                    duracao=achada.get("duracao"),
+                    origem=achada.get("origem") or "",
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        self._json(
+            {
+                "ok": True,
+                "chave": destino.stem,
+                "nome": destino.name,
+                "rotulo": base_segura,
+                "url": f"/api/file?p={_relativo(destino, _OUT_ROOT)}",
+                "audio": True,
+            }
+        )
+
+    def _criar_atalho(self) -> None:
+        """Cria atalho do MRQ Audio Studio na Área de Trabalho do sistema."""
+        try:
+            from ..app import criar_atalho_desktop
+
+            caminho = criar_atalho_desktop()
+        except Exception as exc:  # noqa: BLE001
+            self._json({"erro": f"não consegui criar o atalho: {exc}"}, 500)
+            return
+        self._json({"ok": True, "caminho": caminho})
 
     def _abrir_pasta(self, payload: dict) -> None:
         """Abre a pasta no Explorer/Finder. Sem navegador: e o sistema."""

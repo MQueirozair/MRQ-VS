@@ -1,4 +1,33 @@
-# Pacote Windows portátil (sem instalar Python)
+# Windows: instalador `.exe` e pacote portátil
+
+## Instalador (o jeito recomendado)
+
+`MRQ-VS-Setup-windows-x64.exe` é gerado pelo Inno Setup 6 a partir de
+`windows/installer.iss` (no CI, no runner `windows-latest`) e publicado em
+**GitHub Releases → v0.1.24**. Ele:
+
+* instala em `%LOCALAPPDATA%\MRQ Audio Studio` (sem pedir Administrador);
+* cria o **ícone na Área de Trabalho** e no Menu Iniciar, com `mrq-vs.ico`;
+* registra desinstalador no Painel de Controle;
+* abre o app ao concluir (`--postinstall`, ignorado em instalação silenciosa).
+
+Instalação silenciosa, para script:
+
+```powershell
+.\MRQ-VS-Setup-windows-x64.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+```
+
+### Criar o atalho depois, sem reinstalar
+
+```powershell
+mrq-vs atalho
+```
+
+O mesmo aparece em **Exportar → Criar ícone na Área de Trabalho** (rota
+`POST /api/atalho`). No Windows o atalho é um `.lnk` de verdade, apontando para
+o `mrq-vs.exe` com o ícone `mrq-vs.ico`; em Linux/macOS é um `.desktop`.
+
+## Pacote portátil (sem instalar Python)
 
 Esta pasta guarda a **receita** do zip `mrq-vs-*-windows-x64.zip`, para que o
 pacote possa ser reconstruído sem depender de memória ou de CI.

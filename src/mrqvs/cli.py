@@ -166,8 +166,14 @@ def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # Subcomandos "de verdade" (não são fontes de mídia).
-    if argv and argv[0] in ("doctor", "stems", "models", "serve", "app", "ia", "ai"):
+    if argv and argv[0] in ("doctor", "stems", "models", "serve", "app", "ia", "ai", "atalho"):
         command, rest = argv[0], argv[1:]
+        if command == "atalho":
+            from .app import criar_atalho_desktop
+
+            caminho = criar_atalho_desktop()
+            print(f"Atalho criado em: {caminho}")
+            return 0
         if command == "app":
             from .app import run as run_app
 

@@ -147,6 +147,25 @@ def listar(limite: int = 100) -> list[dict[str, Any]]:
     return vivas[:limite]
 
 
+_ALIASES_STEM = {
+    "vocal": "vocals",
+    "voz": "vocals",
+    "vozes": "vocals",
+    "bateria": "drums",
+    "baixo": "bass",
+    "contrabaixo": "bass",
+    "guitarra": "guitar",
+    "guitarras": "guitar",
+    "violao": "guitar",
+    "teclado": "keys",
+    "teclados": "keys",
+    "outro": "other",
+    "outros": "other",
+    "mix_completo": "mix",
+    "completo": "mix",
+}
+
+
 def _chave_do_stem(arquivo: Path, mapa_json: dict[str, str]) -> str:
     """Descobre o id canônico do stem (`vocals`, `drums`, `mix`, `ensaio_lr`)."""
     import re
@@ -156,9 +175,13 @@ def _chave_do_stem(arquivo: Path, mapa_json: dict[str, str]) -> str:
     nome = arquivo.stem
     if nome.upper().endswith("ENSAIO_LR"):
         return "ensaio_lr"
-    m = re.search(r"_(\d{2})_([a-z0-9_]+)$", nome.lower())
+    m = re.search(r"(?:^|_)(\d{2})_([a-z0-9_]+)$", nome.lower())
     if m:
-        return m.group(2)
+        bruto = m.group(2)
+        return _ALIASES_STEM.get(bruto, bruto)
+    limpo = nome.lower().strip()
+    if limpo in _ALIASES_STEM:
+        return _ALIASES_STEM[limpo]
     return nome
 
 
@@ -252,9 +275,15 @@ def abrir(identificador: str) -> dict[str, Any] | None:
                 estudio["compasso"] = int(edicoes["compasso"])
                 compasso = int(edicoes["compasso"])
             if edicoes.get("denominador"):
-                estudio["denominador"] = 8 if int(edicoes["denominador"]) == 8 else 4
+                estudio["denominador"] = int(edicoes["denominador"]) if int(edicoes["denominador"]) in (2, 4, 8, 16) else 4
             if edicoes.get("bpm"):
                 estudio["bpm"] = float(edicoes["bpm"])
+            if edicoes.get("bpmManual") is not None:
+                estudio["bpmManual"] = bool(edicoes["bpmManual"])
+            if edicoes.get("offsetInicial") is not None:
+                estudio["offsetInicial"] = float(edicoes["offsetInicial"])
+            if edicoes.get("mudancasCompasso") is not None:
+                estudio["mudancasCompasso"] = edicoes["mudancasCompasso"]
             if edicoes.get("tom"):
                 estudio["tonalidade"] = str(edicoes["tom"])
         except (OSError, ValueError):
@@ -279,6 +308,11 @@ def abrir(identificador: str) -> dict[str, Any] | None:
         if not f.is_file() or f.suffix.lower() not in EXTS_AUDIO:
             continue
         chave = _chave_do_stem(f, mapa_nomes)
+        if chave in arquivos:
+            n_extra = 2
+            while f"{chave}_{n_extra}" in arquivos:
+                n_extra += 1
+            chave = f"{chave}_{n_extra}"
         arquivos[chave] = {
             "nome": f.name,
             "url": f"/api/file?p={quote(f.as_posix(), safe='/')}",
@@ -286,6 +320,11 @@ def abrir(identificador: str) -> dict[str, Any] | None:
         }
     if not arquivos:
         return None
+
+    den_final = int(
+        estudio.get("denominador")
+        or (8 if compasso in (6, 7, 12) else 4)
+    )
 
     # Mesmo contrato do /api/run: `render()` na tela e um so. Faltando um
     # campo aqui (bpm_confianca, secoes...) o resultado reaberto aparecia
@@ -304,6 +343,7 @@ def abrir(identificador: str) -> dict[str, Any] | None:
         "camelot": camelot,
         "secoes": secoes_json,
         "compasso": compasso,
+        "denominador": den_final,
         "compasso_confianca": compasso_conf,
         "acordes": acordes_json,
         "estudio": estudio,
