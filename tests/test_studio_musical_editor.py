@@ -907,15 +907,21 @@ def test_importar_faixa_recusa_pasta_fora_das_raizes(tmp_path, monkeypatch):
 
 
 def test_criar_atalho_na_area_de_trabalho(tmp_path, monkeypatch):
-    """O atalho é criado no disco, não só "reportado como criado"."""
+    """O atalho é criado no disco, não só "reportado como criado".
+
+    A plataforma é simulada pelo ponto de leitura do módulo (`_plataforma`) e
+    não trocando `sys.platform`: trocar o `sys` do processo quebrava o próprio
+    `subprocess` no runner do CI (que tem PowerShell instalado).
+    """
     monkeypatch.setenv("MRQVS_HOME", str(tmp_path / "home"))
     from mrqvs import app as app_mod
 
-    # Windows: `.lnk` na Área de Trabalho (sem pywin32 e sem tocar na máquina)
+    # Windows: `.lnk` na Área de Trabalho, sem pywin32 e sem tocar na máquina
     desktop = tmp_path / "win" / "Desktop"
     desktop.mkdir(parents=True)
-    monkeypatch.setattr(app_mod.sys, "platform", "win32", raising=False)
-    monkeypatch.setattr(app_mod, "_pasta_area_de_trabalho", lambda: desktop, raising=False)
+    monkeypatch.setattr(app_mod, "_plataforma", lambda: "win32")
+    monkeypatch.setattr(app_mod, "_tem_powershell", lambda: False)
+    monkeypatch.setattr(app_mod, "_pasta_area_de_trabalho", lambda: desktop)
     caminho = app_mod.criar_atalho_desktop(alvo="C:/Program Files/MRQ-VS/mrq-vs.exe")
     arq = Path(caminho)
     assert arq.is_file()
@@ -926,10 +932,10 @@ def test_criar_atalho_na_area_de_trabalho(tmp_path, monkeypatch):
     assert "mrq-vs.ico" in texto
 
     # Linux/macOS: `.desktop` (existe de verdade e é executável)
-    monkeypatch.setattr(app_mod.sys, "platform", "linux", raising=False)
+    monkeypatch.setattr(app_mod, "_plataforma", lambda: "linux")
     desktop2 = tmp_path / "lin" / "Desktop"
     desktop2.mkdir(parents=True)
-    monkeypatch.setattr(app_mod, "_pasta_area_de_trabalho", lambda: desktop2, raising=False)
+    monkeypatch.setattr(app_mod, "_pasta_area_de_trabalho", lambda: desktop2)
     arq2 = Path(app_mod.criar_atalho_desktop(alvo="/usr/local/bin/mrq-vs"))
     assert arq2.is_file()
     assert arq2.parent == desktop2

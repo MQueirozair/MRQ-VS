@@ -64,7 +64,7 @@ def abrir_no_sistema(caminho) -> None:
     if sys.platform.startswith("win"):
         os.startfile(caminho)  # type: ignore[attr-defined]  # noqa: S606
         return
-    comandos = ["open", "xdg-open"] if sys.platform == "darwin" else ["xdg-open"]
+    comandos = ["open", "xdg-open"] if _plataforma() == "darwin" else ["xdg-open"]
     for cmd in comandos:
         try:
             subprocess.Popen([cmd, caminho], stdout=subprocess.DEVNULL,  # noqa: S603
@@ -75,13 +75,30 @@ def abrir_no_sistema(caminho) -> None:
     raise RuntimeError("nenhum abridor de pasta disponível neste sistema")
 
 
+def _plataforma() -> str:
+    """Plataforma atual — ponto único de leitura.
+
+    Existe para o teste poder simular Windows e Linux sem trocar
+    `sys.platform` do processo inteiro: isso confundia o próprio `subprocess`
+    (no runner do CI, com PowerShell instalado, a troca fazia o módulo tentar
+    caminhos de Windows e estourar em `NeedCurrentDirectoryForExePath`).
+    """
+    return sys.platform
+
+
+def _tem_powershell() -> bool:
+    import shutil
+
+    return bool(shutil.which("powershell") or shutil.which("pwsh"))
+
+
 def _pasta_area_de_trabalho() -> Path:
     """Área de Trabalho do usuário, sem chutar: Desktop, XDG ou nome localizado.
 
     No Windows o caminho vem do registro (`Desktop`); fora dele, do XDG
     (`user-dirs.dirs`) e, por último, de `~/Desktop` / `~/Área de Trabalho`.
     """
-    if sys.platform.startswith("win"):
+    if _plataforma().startswith("win"):
         perfil = os.environ.get("USERPROFILE") or str(Path.home())
         candidatos = [Path(perfil) / "Desktop", Path(perfil) / "Área de Trabalho"]
         achado = next((c for c in candidatos if c.is_dir()), candidatos[0])
@@ -135,7 +152,6 @@ def criar_atalho_desktop(nome_atalho: str = "MRQ Audio Studio", alvo: str = "") 
     aproveita o ícone embutido no `.exe` (ou `mrq-vs.ico` ao lado dele). Em
     Linux cria um `.desktop` em `~/Desktop` ou `~/Área de Trabalho`.
     """
-    import shutil
     import subprocess
 
     #: `alvo` permite apontar o atalho para outro executável (o instalador do
@@ -147,10 +163,10 @@ def criar_atalho_desktop(nome_atalho: str = "MRQ Audio Studio", alvo: str = "") 
     fonte = not informado and not getattr(sys, "frozen", False)
     args_extras = "-m mrqvs" if fonte else ""
 
-    if sys.platform.startswith("win"):
+    if _plataforma().startswith("win"):
         # quando não há PowerShell (Linux/macOS ou sandbox), o atalho é criado
         # no disco e o caminho é devolvido — a interface nunca fica sem resposta
-        if shutil.which("powershell") is None and shutil.which("pwsh") is None:
+        if not _tem_powershell():
             return _atalho_lnk(_pasta_area_de_trabalho(), nome_atalho, alvo, args_extras)
         ps_script = (
             "$desk = [Environment]::GetFolderPath('Desktop'); "
