@@ -211,6 +211,15 @@ def abrir(identificador: str) -> dict[str, Any] | None:
                 str(nome_arq): str(chave)
                 for chave, nome_arq in (dados_json.get("arquivos") or {}).items()
             }
+            # edições do editor (cifra, seções, compasso): são do usuário e
+            # vencem a detecção — se ele corrigiu um acorde, reabrir a música
+            # não pode trazer o acorde errado de volta.
+            try:
+                from . import mixdown
+
+                edicoes = mixdown.ler_edicoes(apoio)
+            except Exception:  # noqa: BLE001
+                edicoes = {}
             if not estudio:
                 # projeto.json de versão anterior à timeline do Studio: monta
                 # o mínimo com o que já existe lá. Sem isto a música antiga
@@ -233,6 +242,21 @@ def abrir(identificador: str) -> dict[str, Any] | None:
                     "bpm": float(analise.get("bpm") or 0.0),
                     "tonalidade": analise.get("tonalidade") or "",
                 }
+            # As edições vencem o detectado. `is not None` importa: lista
+            # vazia significa "o usuário apagou todos", não "não mexeu".
+            if edicoes.get("acordes") is not None:
+                estudio["acordes"] = edicoes["acordes"]
+            if edicoes.get("secoes") is not None:
+                estudio["secoes"] = edicoes["secoes"]
+            if edicoes.get("compasso"):
+                estudio["compasso"] = int(edicoes["compasso"])
+                compasso = int(edicoes["compasso"])
+            if edicoes.get("denominador"):
+                estudio["denominador"] = 8 if int(edicoes["denominador"]) == 8 else 4
+            if edicoes.get("bpm"):
+                estudio["bpm"] = float(edicoes["bpm"])
+            if edicoes.get("tom"):
+                estudio["tonalidade"] = str(edicoes["tom"])
         except (OSError, ValueError):
             pass
         for nome, chave in (("guia.wav", "guia"), ("clique.wav", "clique")):
@@ -271,9 +295,12 @@ def abrir(identificador: str) -> dict[str, Any] | None:
         "pasta": str(pasta),
         "nome_pasta": pasta.name,
         "apoio": str(apoio) if apoio else "",
-        "bpm": entrada.get("bpm"),
+        # O topo da tela (KPIs) tem de mostrar o MESMO que o Studio: se o
+        # usuário corrigiu o BPM ou o tom, é a correção que vale, não o que
+        # foi detectado na primeira separação (que ficava "—" para sempre).
+        "bpm": estudio.get("bpm") or entrada.get("bpm"),
         "bpm_confianca": 1.0,
-        "tonalidade": entrada.get("tom") or "—",
+        "tonalidade": estudio.get("tonalidade") or entrada.get("tom") or "—",
         "camelot": camelot,
         "secoes": secoes_json,
         "compasso": compasso,

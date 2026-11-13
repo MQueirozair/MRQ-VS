@@ -178,6 +178,53 @@ def test_rotas_web_range_upload_biblioteca_e_seguranca(tmp_path, monkeypatch):
     rodado = post_json("/api/run", {"envio": ini["id"], "dois_stems": True, "lr": False})
     assert {"vocals", "instrumental", "mix"} <= set(rodado["arquivos"])
     assert rodado["lr"] == ""
+    assert rodado["apoio"].endswith("-apoio")
+    assert rodado["denominador"] == 4
+
+    # 5. Edições do Studio (/api/edicoes) e exportação de mixagem (/api/exportar-mix)
+    apoio_url = urllib.parse.quote(rodado["apoio"], safe="")
+    with urllib.request.urlopen(f"{base}/api/edicoes?apoio={apoio_url}", timeout=5) as resp:
+        ed0 = json.load(resp)
+    assert ed0["acordes"] is None
+
+    salvo = post_json(
+        "/api/edicoes",
+        {
+            "apoio": rodado["apoio"],
+            "acordes": [{"inicio": 0.0, "fim": 2.0, "compasso": 1, "acorde": "F#m", "confianca": 1.0}],
+            "compasso": 6,
+            "denominador": 8,
+            "bpm": 128,
+            "tom": "F# menor",
+        },
+    )
+    assert salvo["ok"] is True
+
+    # /api/edicoes bloqueia leitura/gravação fora das raízes autorizadas
+    fora_apoio = tmp_path / "fora-apoio"
+    fora_apoio.mkdir()
+    try:
+        urllib.request.urlopen(f"{base}/api/edicoes?apoio={urllib.parse.quote(str(fora_apoio))}", timeout=3)
+        raise AssertionError("deveria negar /api/edicoes fora das raízes")
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 403
+
+    # /api/exportar-mix funciona direto com caminhos relativos devolvidos por /api/run
+    rel_voc = urllib.parse.parse_qs(urllib.parse.urlparse(rodado["arquivos"]["vocals"]["url"]).query)["p"][0]
+    rel_inst = urllib.parse.parse_qs(urllib.parse.urlparse(rodado["arquivos"]["instrumental"]["url"]).query)["p"][0]
+    mix_res = post_json(
+        "/api/exportar-mix",
+        {
+            "pasta": rodado["pasta"],
+            "apoio": rodado["apoio"],
+            "faixas": [
+                {"caminho": rel_voc, "volume": 0.9, "pan": -0.5, "mudo": False, "solo": False},
+                {"caminho": rel_inst, "volume": 0.8, "pan": 0.5, "mudo": False, "solo": False},
+            ],
+        },
+    )
+    assert mix_res["nome"].endswith("_MIX.wav")
+    assert mix_res["faixas"] == 2
 
     with urllib.request.urlopen(base + "/api/biblioteca", timeout=5) as resp:
         bib = json.load(resp)
@@ -186,6 +233,12 @@ def test_rotas_web_range_upload_biblioteca_e_seguranca(tmp_path, monkeypatch):
     reaberto = post_json("/api/biblioteca/abrir", {"id": itens[0]["id"]})
     assert reaberto["ok"] is True
     assert {"vocals", "instrumental", "mix"} <= set(reaberto["arquivos"])
+    # As edições do usuário vencem a detecção ao reabrir pela biblioteca
+    assert reaberto["bpm"] == 128.0
+    assert reaberto["tonalidade"] == "F# menor"
+    assert reaberto["compasso"] == 6
+    assert reaberto["estudio"]["denominador"] == 8
+    assert reaberto["estudio"]["acordes"][0]["acorde"] == "F#m"
 
     rem = post_json("/api/biblioteca/remover", {"id": itens[0]["id"]})
     assert rem["ok"] is True
@@ -211,3 +264,65 @@ def test_javascript_embutido_no_html_tem_sintaxe_valida():
             assert proc.returncode == 0, f"erro de sintaxe JS no index.html:\n{proc.stderr}"
         finally:
             caminho.unlink(missing_ok=True)
+
+
+def test_mixdown_pan_solo_mute_e_normalizacao(tmp_path: Path):
+    import pytest
+
+    from mrqvs import mixdown
+
+    sr = 22050
+    t = np.arange(sr) / sr
+    f1 = tmp_path / "esq.wav"
+    f2 = tmp_path / "dir.wav"
+    sf.write(f1, (0.8 * np.sin(2 * np.pi * 220 * t)).astype(np.float32), sr)
+    sf.write(f2, (0.8 * np.sin(2 * np.pi * 440 * t)).astype(np.float32), sr)
+
+    # Solo apenas na primeira faixa pan -1.0 (tudo na esquerda)
+    out1 = tmp_path / "solo_esq.wav"
+    res1 = mixdown.mixar(
+        [
+            {"caminho": str(f1), "volume": 1.0, "pan": -1.0, "mudo": False, "solo": True},
+            {"caminho": str(f2), "volume": 1.0, "pan": 1.0, "mudo": False, "solo": False},
+        ],
+        out1,
+        sample_rate=sr,
+    )
+    assert res1["faixas"] == 1
+    dados1, _ = sf.read(out1, always_2d=True)
+    assert float(np.max(np.abs(dados1[:, 0]))) > 0.5
+    assert float(np.max(np.abs(dados1[:, 1]))) < 1e-3
+
+    # Clipping > 1.0 é normalizado sem distorcer
+    out2 = tmp_path / "clip.wav"
+    res2 = mixdown.mixar(
+        [
+            {"caminho": str(f1), "volume": 2.0, "pan": 0.0, "mudo": False, "solo": False},
+            {"caminho": str(f2), "volume": 2.0, "pan": 0.0, "mudo": False, "solo": False},
+        ],
+        out2,
+        sample_rate=sr,
+    )
+    assert res2["normalizado"] is True
+
+    # Todas mudas -> ValueError claro
+    with pytest.raises(ValueError, match="todas as faixas"):
+        mixdown.mixar([{"caminho": str(f1), "mudo": True}], tmp_path / "vazio.wav", sample_rate=sr)
+
+
+def test_build_entrypoint_e_conferencia_de_nome():
+    import sys
+
+    import pytest
+
+    from mrqvs import __version__, release
+
+    release.conferir_nome_do_pacote(f"mrq-vs-{__version__}-linux-x64.zip", "linux-x64")
+    with pytest.raises(SystemExit):
+        release.conferir_nome_do_pacote(f"mrq-vs-{__version__}-windows-x64.zip", "linux-x64")
+
+    script = Path(__file__).resolve().parents[1] / "src" / "mrqvs" / "_build.py"
+    proc = subprocess.run([sys.executable, str(script), "--version"], check=False, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert __version__ in proc.stdout
+

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mrq-vs"
-version = "0.1.21"
+version = "0.1.23"
 description = "Separa músicas em stems, detecta BPM/compasso/acordes, gera clique, guia e ENSAIO L/R de palco."
 readme = "README.md"
 requires-python = ">=3.10"

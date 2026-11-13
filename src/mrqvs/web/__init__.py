@@ -138,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"versoes": self._biblioteca()})
         elif parsed.path in ("/favicon.ico", "/icone-192.png", "/icone-512.png"):
             self._serve_icone(parsed.path)
+        elif parsed.path == "/api/edicoes":
+            self._edicoes_ler(parse_qs(parsed.query).get("apoio", [""])[0])
         elif parsed.path == "/api/bib/capa":
             self._serve_capa_bib(parse_qs(parsed.query).get("p", [""])[0])
         else:
@@ -171,6 +173,10 @@ class Handler(BaseHTTPRequestHandler):
             self._bib_remover(self._read_json())
         elif rota == "/api/abrir-pasta":
             self._abrir_pasta(self._read_json())
+        elif rota == "/api/edicoes":
+            self._edicoes_salvar(self._read_json())
+        elif rota == "/api/exportar-mix":
+            self._exportar_mix(self._read_json())
         else:
             self._json({"erro": "rota não encontrada"}, 404)
 
@@ -305,6 +311,9 @@ class Handler(BaseHTTPRequestHandler):
         self._json(
             {
                 "pasta": str(result.folder),
+                # a pasta -apoio guarda as edições do editor (edicoes.json).
+                # Sem ela no payload, salvar cifra/seções não teria onde.
+                "apoio": str(result.folder.parent / f"{result.folder.name}-apoio"),
                 # se o usuario escolheu destino, o 1o clique registrou; se nao,
                 # registra agora — senao "abrir pasta" caia em out/ e parecia
                 # que os arquivos tinham sumido
@@ -321,6 +330,7 @@ class Handler(BaseHTTPRequestHandler):
                 # compasso, acordes e guia: o que a faixa de guia do CueWee
                 # mostra e a interface desenha (acorde em cima do compasso).
                 "compasso": result.compasso,
+                "denominador": result.studio.denominador,
                 "compasso_confianca": result.compasso_confianca,
                 "acordes": result.acordes,
                 # timeline do Studio (regua de compassos, cifra que anda com
@@ -623,6 +633,89 @@ class Handler(BaseHTTPRequestHandler):
         ok = biblioteca.remover(str(payload.get("id") or ""))
         self._json({"ok": ok})
 
+    def _edicoes_ler(self, apoio: str) -> None:
+        """Edições de cifra/seções/compasso salvas pelo usuário.
+
+        Devolve `acordes: null` quando nunca houve edição — e isso é
+        importante: `null` = "use o que foi detectado", `[]` = "o usuário
+        apagou todos os acordes". Tratar os dois como iguais apagaria o
+        trabalho dele ao reabrir.
+        """
+        from .. import mixdown
+
+        if not apoio:
+            self._json({"erro": "informe a pasta -apoio"}, 400)
+            return
+        alvo = Path(apoio)
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        self._json(mixdown.ler_edicoes(alvo))
+
+    def _edicoes_salvar(self, payload: dict) -> None:
+        from .. import mixdown
+
+        apoio = str(payload.get("apoio") or "")
+        if not apoio or not Path(apoio).is_dir():
+            self._json({"erro": "pasta -apoio não encontrada"}, 404)
+            return
+        alvo = Path(apoio)
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            dados = mixdown.salvar_edicoes(alvo, payload)
+        except OSError as exc:
+            self._json({"erro": f"não foi possível salvar: {exc}"}, 500)
+            return
+        self._json({"ok": True, "edicoes": dados})
+
+    def _exportar_mix(self, payload: dict) -> None:
+        """Soma as faixas como o editor está ouvindo (volume, mute, solo, pan).
+
+        O resultado vai para a pasta de ÁUDIO da música, com nome próprio
+        (`_MIX.wav`), nunca por cima de um stem: o usuário pode exportar dez
+        versões e comparar.
+        """
+        from .. import mixdown
+
+        pasta_str = str(payload.get("pasta") or "")
+        faixas = payload.get("faixas") or []
+        if not pasta_str or not Path(pasta_str).is_dir():
+            self._json({"erro": "pasta da música não encontrada"}, 404)
+            return
+        pasta = Path(pasta_str)
+        if not _pode_servir(pasta):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        if not isinstance(faixas, list) or not faixas:
+            self._json({"erro": "nenhuma faixa para exportar"}, 400)
+            return
+        resolvidas: list[dict] = []
+        for f in faixas:
+            if not isinstance(f, dict):
+                self._json({"erro": "faixa fora das pastas autorizadas"}, 403)
+                return
+            arq = _resolver_arquivo_servido(str(f.get("caminho") or ""), pasta_dica=pasta)
+            if arq is None:
+                self._json({"erro": "faixa fora das pastas autorizadas"}, 403)
+                return
+            copia = dict(f)
+            copia["caminho"] = str(arq)
+            resolvidas.append(copia)
+        destino = pasta / f"{pasta.name}_MIX.wav"
+        try:
+            resultado = mixdown.mixar(resolvidas, destino)
+        except ValueError as exc:
+            self._json({"erro": str(exc)}, 400)
+            return
+        except Exception as exc:  # noqa: BLE001
+            self._json({"erro": f"falha ao mixar: {exc}"}, 500)
+            return
+        resultado["url"] = f"/api/file?p={_relativo(destino, _OUT_ROOT)}"
+        resultado["nome"] = destino.name
+        self._json(resultado)
+
     def _abrir_pasta(self, payload: dict) -> None:
         """Abre a pasta no Explorer/Finder. Sem navegador: e o sistema."""
         alvo = Path(payload.get("pasta") or _OUT_ROOT)
@@ -920,13 +1013,38 @@ def _pode_servir(alvo: Path) -> bool:
         from .. import biblioteca
 
         for versao in biblioteca.listar(limite=500):
-            for chave in ("pasta", "apoio"):
-                raiz = versao.get(chave)
+            pasta_bib = versao.get("pasta")
+            candidatos_bib = [pasta_bib, versao.get("apoio")]
+            if pasta_bib:
+                p_bib = Path(pasta_bib)
+                candidatos_bib.append(str(p_bib.parent / f"{p_bib.name}-apoio"))
+            for raiz in candidatos_bib:
                 if raiz and _dentro(alvo, Path(raiz)):
                     return True
     except Exception:  # noqa: BLE001 - biblioteca indisponivel nao autoriza
         return False
     return False
+
+
+def _resolver_arquivo_servido(caminho: str, pasta_dica: Path | None = None) -> Path | None:
+    """Resolve caminho absoluto ou relativo a `out/` / raízes autorizadas."""
+    if not caminho:
+        return None
+    alvo = Path(caminho)
+    if ".." in alvo.parts:
+        return None
+    if alvo.is_absolute():
+        candidatos = [alvo]
+    else:
+        candidatos = [_OUT_ROOT / alvo] + [r / alvo for r in _raizes_arquivos()]
+        if pasta_dica is not None:
+            candidatos.extend([pasta_dica / alvo, pasta_dica.parent / alvo])
+    for candidato in candidatos:
+        if candidato.is_file():
+            resolvido = candidato.resolve()
+            if _pode_servir(resolvido):
+                return resolvido
+    return None
 
 
 def _dentro(alvo: Path, raiz: Path) -> bool:

@@ -224,142 +224,356 @@
   .apoio select{background:#0d1218;color:inherit;border:1px solid var(--line);
     border-radius:7px;padding:4px 6px;font:inherit;font-size:11.5px}
 
-  /* ================= STUDIO (referência: CueWee Studio) =================
-     A ideia é a mesma da tela deles: a música inteira numa timeline, com
-     régua de compasso em cima, a cifra logo abaixo (andando com o play) e
-     uma faixa por instrumento. O que muda é a linguagem: aqui é tudo preto
-     e verde, como o resto do MRQ VS. */
-  .studio{margin:14px 0 6px;border:1px solid var(--line);border-radius:14px;
-          background:#0b0f14;overflow:hidden}
-  .studio-topo{display:flex;align-items:center;gap:10px;padding:10px 12px;
-               border-bottom:1px solid var(--line);background:#0f141a;flex-wrap:wrap}
-  .studio-titulo{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
-  .studio-titulo svg{color:var(--accent);flex:none}
-  .studio-titulo b{font-size:13.5px;font-weight:600;white-space:nowrap;
-                   overflow:hidden;text-overflow:ellipsis}
-  .studio-meta{display:flex;gap:12px;font-size:12px;color:var(--muted);flex:none}
-  .studio-meta span{white-space:nowrap}
-  .studio-acoes{display:flex;gap:7px;flex:none}
-  .studio-acoes .mini{font-size:11.5px;padding:6px 10px}
-  .studio-acoes .ao-vivo{border-color:#4a3b6b;background:#211a30;color:#c9b6ff}
-  .versao.desatualizada{color:var(--warn);font-weight:600}
-  .versao{font-size:10.5px;color:var(--muted);letter-spacing:.04em;
-    padding:0 2px 8px;font-variant-numeric:tabular-nums}
+  /* ================= STUDIO (editor multipista) =================
+     Layout de DAW real, em quatro faixas horizontais:
+
+       cabeçalho    nome/tom/BPM/duração + exportar + modo ao vivo
+       ferramentas  clique, loop, marcar, compasso, BPM, tom, zoom
+       corpo        painel esquerdo FIXO | régua FIXA | faixas rolam
+       transporte   barra inferior fixa, largura toda
+
+     O corpo é um grid de duas colunas (painel de largura fixa + área de
+     tempo). O que rola na horizontal é SÓ a área de tempo — e o mesmo scroll
+     move a régua, a cifra e as faixas, então não há como saírem de registro.
+     Alinhamento é garantido por altura de linha única (--h-linha). */
+  .studio{
+    --h-linha:74px;         /* uma faixa de áudio (nome + M/S + vol + pan) */
+    --h-cifra:44px;         /* linha de cifra */
+    --h-regua:30px;         /* régua de compassos */
+    --painel:232px;         /* largura do painel esquerdo (nome + M/S + vol/pan) */
+    --cor-click:#8595ad; --cor-guia:#a78bfa;
+    margin:14px 0 6px;border:1px solid var(--line);border-radius:12px;
+    background:#0a0d12;overflow:hidden;position:relative;
+    display:flex;flex-direction:column;
+    /* O editor tem de caber na tela inteira: 1080p dá 7 faixas inteiras sem
+       rolar; 768p encurta a lista; ultrawide ganha painel mais largo. Antes
+       era `min-height:340px`, que deixava metade da tela preta embaixo. */
+    height:clamp(360px, calc(100vh - 300px), 900px);
+    min-height:0}
+  .studio.sem-min{min-height:0}
+
+  /* ---------- cabeçalho ---------- */
+  .studio-topo{display:flex;align-items:center;gap:11px;padding:9px 12px;
+               border-bottom:1px solid var(--line);background:#11161d;flex:none}
+  .studio-icone{width:34px;height:34px;border-radius:9px;flex:none;
+    background:linear-gradient(150deg,#16241d,#0d1418);
+    border:1px solid #24352c;display:flex;align-items:center;justify-content:center;
+    color:var(--accent)}
+  .studio-icone svg{width:19px;height:19px}
+  .studio-titulo{min-width:0;flex:1;display:flex;flex-direction:column;gap:1px}
+  .studio-titulo b{font-size:14.5px;font-weight:650;letter-spacing:-.01em;
+                   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .studio-sub{display:flex;gap:12px;font-size:11.5px;color:var(--muted);
+              font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .studio-sub span{white-space:nowrap}
+  .studio-acoes{display:flex;gap:7px;flex:none;align-items:center}
+  .studio-acoes .mini{font-size:11.5px;padding:6px 11px;border-radius:8px;
+    background:#171f28;border:1px solid var(--line);color:var(--text);
+    cursor:pointer;white-space:nowrap;font:inherit;font-size:11.5px}
+  .studio-acoes .mini:hover{background:#1d2733;border-color:#33414f}
+  .studio-acoes .ao-vivo{border-color:#4a3b6b;background:#201a2e;color:#c9b6ff}
+  /* volume geral: rótulo + slider + valor, sempre visíveis */
+  .master{display:flex;align-items:center;gap:7px;padding:5px 10px;
+    background:#141b23;border:1px solid var(--line);border-radius:9px;flex:none}
+  .master svg{width:15px;height:15px;fill:none;stroke:#8fa2b5;stroke-width:1.8;
+    stroke-linecap:round;stroke-linejoin:round}
+  .master-range{width:96px;accent-color:var(--accent);height:14px}
+  .master span{font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums;
+    min-width:32px;text-align:right}
   .exportar-wrap{position:relative}
-  .menu-exportar{position:absolute;right:0;top:calc(100% + 6px);z-index:20;
-    min-width:250px;background:#131a22;border:1px solid var(--line);
-    border-radius:10px;padding:6px;box-shadow:0 14px 34px rgba(0,0,0,.5);
+  .menu-exportar{position:absolute;right:0;top:calc(100% + 6px);z-index:30;
+    min-width:290px;background:#131a22;border:1px solid var(--line);
+    border-radius:10px;padding:6px;box-shadow:0 16px 38px rgba(0,0,0,.6);
     display:flex;flex-direction:column;gap:2px}
   .menu-exportar[hidden]{display:none}
-  .menu-exportar a,.menu-exportar button{display:block;text-align:left;
+  .menu-exportar a,.menu-exportar button{display:block;width:100%;text-align:left;
     padding:8px 10px;border-radius:7px;color:var(--text);font-size:12.5px;
     text-decoration:none;background:none;border:0;cursor:pointer;font:inherit}
   .menu-exportar a:hover,.menu-exportar button:hover{background:#1d2733}
-  .menu-exportar small{display:block;color:var(--muted);font-size:11px}
-  .studio-ferramentas{display:flex;align-items:center;gap:6px;padding:7px 12px;
-                      border-bottom:1px solid var(--line);background:#0d1218}
-  .ferr{background:#151c24;border:1px solid var(--line);color:var(--muted);
-        border-radius:7px;width:28px;height:26px;cursor:pointer;font-size:13px;
-        display:flex;align-items:center;justify-content:center;padding:0}
+  .menu-exportar small{display:block;color:var(--muted);font-size:11px;margin-top:1px}
+
+  /* ---------- barra de ferramentas ---------- */
+  .studio-ferramentas{display:flex;align-items:center;gap:7px;padding:6px 10px;
+    border-bottom:1px solid var(--line);background:#0d1218;flex:none;flex-wrap:wrap}
+  .ferr{background:#161e27;border:1px solid var(--line);color:var(--muted);
+    border-radius:7px;width:28px;height:26px;cursor:pointer;font-size:13px;
+    display:flex;align-items:center;justify-content:center;padding:0}
   .ferr:hover{color:var(--text);border-color:#3a4757}
-  .ferr.on{color:#0a1a12;background:var(--accent);border-color:var(--accent)}
-  .ferr-sel{background:#151c24;border:1px solid var(--line);color:var(--muted);
-            border-radius:7px;font:inherit;font-size:11.5px;padding:4px 6px}
-  .ferr-dica{margin-left:auto;font-size:11px;color:#5c6673;
-             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  /* grade: rótulos | tempo (rola) | stems (rola junto) */
-  .studio-grade{display:grid;grid-template-columns:118px minmax(0,1fr);
-                max-height:56vh;overflow-y:auto;overflow-x:hidden;position:relative}
-  .col-rótulos{position:sticky;left:0;z-index:3;background:#0d1218;
-               border-right:1px solid var(--line);display:flex;flex-direction:column}
-  .rotulo-vazio{height:26px}
-  .rotulo-cifra{height:30px;display:flex;align-items:center;padding:0 10px;
-                font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-                color:var(--muted);border-top:1px solid var(--line)}
-  .rotulo-faixa{border-top:1px solid var(--line);padding:4px 8px;
-                display:flex;align-items:center;gap:6px;font-size:11.5px;
-                font-weight:600;min-height:46px;flex-wrap:wrap}
-  .ensaio-ctrl{display:flex;align-items:center;gap:5px;width:100%}
-  .ensaio-ctrl .bt{width:20px;height:18px;border-radius:4px;font-size:10px;
-                   padding:0;border:1px solid var(--line);background:#151c24;
-                   color:var(--muted);cursor:pointer}
-  .ensaio-ctrl .bt.on-m{background:#3a1f1f;border-color:#7a3a3a;color:#ffb3b3}
-  .ensaio-ctrl .vol{flex:1;min-width:0;accent-color:var(--accent);height:14px}
-  .rotulo-faixa .ponto{width:7px;height:7px;border-radius:50%;flex:none}
-  .col-tempo{min-width:0;position:relative}
-  .tempo-rolagem{position:relative;min-width:100%}
-  /* régua de compassos: igual à do CueWee (números 1, 5, 9...) */
-  .regua{height:26px;position:relative;border-bottom:1px solid var(--line);
-         background:#0b0f14;cursor:pointer;user-select:none}
-  .regua .comp-num{position:absolute;top:4px;font-size:10.5px;color:#6d7887;
-                   transform:translateX(2px);pointer-events:none}
-  .regua .batida{position:absolute;bottom:0;width:1px;background:#1c232d}
-  .regua .batida.forte{background:#2b3644}
-  .regua .marca-compasso{position:absolute;top:0;bottom:0;width:1px;
-                         background:#222c38}
-  .linha-cifra{height:30px;position:relative;border-bottom:1px solid var(--line);
-               background:#0d1218;overflow:hidden}
+  .ferr.on{color:#08170f;background:var(--accent);border-color:var(--accent)}
+  .ferr-sep{width:1px;height:18px;background:var(--line);margin:0 3px;flex:none}
+  .ferr-campo{display:flex;align-items:center;gap:5px;font-size:11px;
+    color:var(--muted);white-space:nowrap}
+  .ferr-sel,.ferr-num{background:#161e27;border:1px solid var(--line);
+    color:var(--text);border-radius:6px;font:inherit;font-size:11.5px;padding:3px 5px}
+  .ferr-num{width:56px;font-variant-numeric:tabular-nums}
+  .ferr-range{width:104px;accent-color:var(--accent)}
+  .ferr-dica{margin-left:auto;font-size:11px;color:#5c6673;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+  /* ---------- corpo: painel fixo + tempo ---------- */
+  .studio-corpo{display:grid;grid-template-columns:var(--painel) minmax(0,1fr);
+    flex:1;min-height:0;overflow:hidden}
+  .studio-painel{display:flex;flex-direction:column;background:#0d1218;
+    border-right:1px solid var(--line);z-index:6;min-width:0}
+  .painel-topo{height:var(--h-regua);display:flex;align-items:center;gap:7px;
+    padding:0 9px;border-bottom:1px solid var(--line);flex:none;
+    font-size:10.5px;color:var(--muted);letter-spacing:.05em}
+  .painel-formula{font-weight:700;color:#c9d4e0;font-variant-numeric:tabular-nums}
+  .painel-info{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .painel-linha{height:var(--h-cifra);display:flex;align-items:center;gap:6px;
+    padding:0 9px;border-bottom:1px solid var(--line);flex:none;
+    font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+  .painel-mini{margin-left:auto;font-size:10px;letter-spacing:0;
+    background:#161e27;border:1px solid var(--line);color:var(--muted);
+    border-radius:5px;padding:2px 6px;cursor:pointer;font-family:inherit;
+    text-transform:none}
+  .painel-mini.on{background:#243049;border-color:#3a4c6b;color:#cfe0ff}
+  .painel-faixas{flex:1;min-height:0;overflow:hidden}
+
+  /* uma linha de faixa: painel (esquerda) e onda (direita) têm a MESMA altura */
+  .faixa{display:flex;flex-direction:column;height:var(--h-linha);flex:none;
+    border-bottom:1px solid #1a222c;position:relative;overflow:hidden}
+  .faixa.selecionada{background:#111a22}
+  .faixa.selecionada::before{content:"";position:absolute;left:0;top:0;bottom:0;
+    width:3px;background:var(--cor-faixa,#5fd0a0)}
+  .faixa-topo{display:flex;align-items:center;gap:6px;padding:6px 8px 0 9px;flex:none}
+  .faixa-cor{width:4px;height:22px;border-radius:2px;flex:none;
+    background:var(--cor-faixa,#5fd0a0)}
+  .faixa-nome{font-size:11.5px;font-weight:600;flex:1;min-width:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  .faixa-ms{display:flex;gap:3px;flex:none}
+  .faixa-ms button,.faixa-menu{width:19px;height:17px;border-radius:4px;
+    font-size:9.5px;font-weight:700;padding:0;border:1px solid var(--line);
+    background:#161e27;color:var(--muted);cursor:pointer;font-family:inherit;
+    display:flex;align-items:center;justify-content:center}
+  .faixa-ms button:hover{border-color:#3a4757;color:var(--text)}
+  .faixa-ms .on-m{background:#43201f;border-color:#8a3f3c;color:#ffb9b4}
+  .faixa-ms .on-s{background:#1c3a2a;border-color:#2f7a55;color:#9ff0c8}
+  .faixa-ms .btOlho svg{width:12px;height:12px;fill:none;stroke:currentColor;
+    stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .faixa-ms .btOlho.off{color:#5a6674;opacity:.55}
+  .faixa.oculta{opacity:.55}
+  .faixa.oculta .faixa-nome{font-style:italic}
+  .faixa-menu{padding:0 2px}
+  .faixa-controles{display:flex;align-items:center;gap:5px;padding:2px 8px 0 9px;flex:none}
+  .ctrl-rot{font-size:8.5px;letter-spacing:.06em;color:#6b7787;width:22px;flex:none;
+    font-weight:600}
+  .ctrl-val{font-size:9.5px;color:#8b98a7;width:20px;flex:none;text-align:right;
+    font-variant-numeric:tabular-nums}
+  .faixa-vol{flex:1;min-width:34px;accent-color:var(--accent);height:13px}
+  .faixa-pan{width:44px;accent-color:#7f9ec9;height:13px}
+  .faixa-pan[data-centro="1"]{accent-color:#5a6a7a}
+  .faixa-medidor{width:100%;height:3px;background:#151c24;border-radius:2px;
+    overflow:hidden;margin:3px 8px 0 9px;flex:none}
+  .faixa-medidor i{display:block;height:100%;width:0%;
+    background:linear-gradient(90deg,#4f9dde,#5fd0a0);transition:width .08s linear}
+  /* perto do topo o medidor avisa em âmbar/vermelho */
+  .faixa-medidor.quente i{background:linear-gradient(90deg,#d9a441,#e05c5c)}
+  .faixa-texto{font-size:9.5px;color:#5c6673;font-variant-numeric:tabular-nums;
+    padding:0 8px 0 9px;flex:none;white-space:nowrap;overflow:hidden}
+
+  /* ---------- área de tempo (rola nos dois eixos) ---------- */
+  .studio-tempo{position:relative;overflow:auto;min-width:0;background:#0a0d12;
+    overscroll-behavior:contain}
+  /* marcas de seção na régua: sempre visíveis, mesmo sem faixa de guia */
+  .secao-marca{position:absolute;top:2px;height:calc(100% - 4px);z-index:6;
+    background:linear-gradient(180deg,rgba(167,139,250,.30),rgba(167,139,250,.10));
+    border-left:2px solid rgba(167,139,250,.85);border-radius:0 3px 3px 0;
+    color:#e2d9ff;font-size:9px;font-weight:700;letter-spacing:.05em;
+    padding:1px 4px;overflow:hidden;white-space:nowrap;cursor:pointer;
+    display:flex;align-items:center;text-shadow:0 1px 2px #000}
+  .secao-marca:hover{background:linear-gradient(180deg,rgba(167,139,250,.55),rgba(167,139,250,.25))}
+  .regua{overflow:visible}
+
+  /* região selecionada: sombreado que atravessa régua, cifra e faixas */
+  .selecao-tempo{position:absolute;top:0;bottom:0;pointer-events:none;z-index:3;
+    background:rgba(95,208,160,.10);border-left:1px solid rgba(95,208,160,.55);
+    border-right:1px solid rgba(95,208,160,.55)}
+  .selecao-tempo[hidden]{display:none}
+  .ferr-range-curto{width:70px}
+  .studio-tempo::-webkit-scrollbar{height:11px;width:11px}
+  .studio-tempo::-webkit-scrollbar-thumb{background:#2b3644;border-radius:6px}
+  .studio-tempo::-webkit-scrollbar-track{background:#0d1218}
+  .tempo-conteudo{position:relative;min-width:100%}
+
+  /* régua fixa no topo da área de tempo: o número fica onde o usuário espera
+     mesmo rolando as faixas */
+  .regua{height:var(--h-regua);position:sticky;top:0;z-index:5;
+    border-bottom:1px solid var(--line);background:#0d1218;cursor:pointer;
+    user-select:none;overflow:hidden}
+  .regua .comp-num{position:absolute;top:6px;font-size:10px;color:#71808f;
+    transform:translateX(3px);pointer-events:none;font-variant-numeric:tabular-nums}
+  .regua .comp-num.forte{color:#aab8c6;font-weight:700}
+  .regua .batida{position:absolute;bottom:0;width:1px;height:5px;background:#1e2731}
+  .regua .batida.forte{height:9px;background:#33404f}
+  .regua .marca-compasso{position:absolute;top:0;bottom:0;width:1px;background:#222c38}
+  .regua .formula-tag{position:absolute;left:3px;top:3px;font-size:8.5px;
+    color:#4e5b69;letter-spacing:.04em;pointer-events:none}
+
+  /* linha de cifra */
+  .linha-cifra{height:var(--h-cifra);position:relative;border-bottom:1px solid var(--line);
+    background:#0c1117;overflow:hidden}
+  /* acorde legível: maior, com contraste e com o acorde atual bem destacado */
   .cifra-cel{position:absolute;top:0;height:100%;display:flex;align-items:center;
-             font-size:14.5px;font-weight:700;color:#c9b6ff;padding-left:5px;
-             border-left:1px solid #1c232d;white-space:nowrap;overflow:hidden;
-             letter-spacing:-.01em}
-  .cifra-cel.fraca{color:#7a6f96;font-weight:600}
-  .cifra-cel.atual{color:#fff;background:linear-gradient(90deg,#5b3fb8 0%,#3a2a72 100%)}
-  .trilha{position:relative;border-bottom:1px solid var(--line);overflow:hidden}
-  .trilha canvas{display:block;width:100%}
-  .cabeca-tempo{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);
-                z-index:4;pointer-events:none;box-shadow:0 0 6px rgba(95,208,160,.6)}
-  /* stems */
-  .col-stems{min-width:0}
-  .stem-topo{display:flex;align-items:center;gap:5px;padding:5px 8px;
-             border-bottom:1px solid var(--line);background:#0d1218}
-  .stem-topo .nome{font-size:11.5px;font-weight:600;display:flex;align-items:center;
-                   gap:5px;min-width:0;flex:1}
-  .stem-topo .nome span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .stem-topo .nome .ponto{width:8px;height:8px;border-radius:2px;flex:none}
-  .stem-topo .bt{width:20px;height:18px;border-radius:4px;font-size:10px;
-                 padding:0;border:1px solid var(--line);background:#151c24;
-                 color:var(--muted);cursor:pointer}
-  .stem-topo .bt.on-m{background:#3a1f1f;border-color:#7a3a3a;color:#ffb3b3}
-  .stem-topo .bt.on-s{background:#1f3a2a;border-color:#2f7a55;color:#9ff0c8}
-  .stem-topo .vol{width:56px;accent-color:var(--accent);height:14px}
-  .stem-topo .vol-drop{position:relative}
-  .stem-linha{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
-  .stem-linha canvas{display:block;width:100%}
-  .stem-linha.mudo canvas{opacity:.28}
-  .stem-linha.solo canvas{opacity:1;filter:brightness(1.35)}
-  /* transporte */
-  .studio-transporte{display:flex;align-items:center;gap:9px;padding:9px 12px;
-                     background:#0f141a;border-top:1px solid var(--line);flex-wrap:wrap}
-  .play-g{width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);
-          color:#06170e;font-size:14px;cursor:pointer;flex:none;display:flex;
-          align-items:center;justify-content:center}
-  .play-g:hover{filter:brightness(1.08)}
-  .tr{background:#151c24;border:1px solid var(--line);color:var(--muted);
-      border-radius:7px;height:28px;min-width:30px;cursor:pointer;font-size:12px}
-  .tr:hover{color:var(--text)}
-  .tr.on{color:#0a1a12;background:var(--accent);border-color:var(--accent)}
-  .tr-tempo{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--text);
-            margin-left:4px}
-  .tr-info{margin-left:auto;font-size:11.5px;color:var(--muted);
-           border:1px solid var(--line);background:#141b23;border-radius:7px;
-           padding:5px 9px;white-space:nowrap}
-  .tr-info:first-of-type{margin-left:auto}
-  .tr-info + .tr-info{margin-left:0}
-  /* modo ao vivo: tela cheia, esconde tudo o que não é palco */
+    font-size:17px;font-weight:700;color:#d9cdff;padding-left:8px;
+    text-shadow:0 1px 2px rgba(0,0,0,.5);
+    border-left:1px solid #1a222c;white-space:nowrap;overflow:hidden;
+    letter-spacing:-.01em;cursor:text;box-sizing:border-box}
+  .cifra-cel:hover{background:#151d29}
+  .cifra-cel.fraca{color:#7f759c;font-weight:600;font-family:ui-monospace,monospace;
+    font-size:12px}
+  .cifra-cel.atual{color:#0a0d12;background:linear-gradient(90deg,#b9a1ff,#8b6ef0);
+    box-shadow:inset 0 0 0 1px #d3c4ff,0 0 12px rgba(139,110,240,.35);text-shadow:none}
+  .cifra-cel.editando{outline:2px solid #7c5cff;outline-offset:-2px;background:#151d29}
+  .cifra-cel input{background:none;border:0;color:inherit;font:inherit;width:100%;
+    padding:0;outline:none}
+
+  /* faixas de áudio */
+  .grade-faixas{position:relative}
+  .trilha{position:relative;height:var(--h-linha);border-bottom:1px solid #1a222c;
+    overflow:hidden;cursor:pointer}
+  .trilha canvas{display:block;height:100%;width:100%}
+  .trilha .rotulo-trilha{position:absolute;left:7px;top:5px;font-size:9.5px;
+    font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    color:rgba(255,255,255,.55);pointer-events:none}
+  .trilha.mudo canvas{opacity:.25}
+  .trilha.solo canvas{opacity:1}
+  .secao-bloco{position:absolute;top:20px;bottom:5px;border-radius:4px;
+    background:rgba(124,92,255,.30);border:1px solid rgba(167,139,250,.75);
+    display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:700;
+    color:#e8e2ff;overflow:hidden;white-space:nowrap;letter-spacing:.05em;
+    text-transform:uppercase;box-sizing:border-box}
+  .secao-bloco:hover{background:rgba(124,92,255,.45)}
+
+  /* cursor de reprodução: uma linha só, atravessando régua, cifra e faixas */
+  .cabeca-vertical{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);
+    z-index:8;pointer-events:none;box-shadow:0 0 8px rgba(95,208,160,.55);
+    will-change:transform}
+  .cabeca-vertical::before{content:"";position:absolute;top:0;left:-3px;
+    border-left:4px solid transparent;border-right:4px solid transparent;
+    border-top:6px solid var(--accent)}
+
+  /* ---------- transporte ---------- */
+  /* ---------- transporte ----------
+     Oito botões de mesmo tamanho, ícones de traço (Lucide), grupo à esquerda
+     e leitura (tempo/compasso/tom/BPM) à direita. Nada se sobrepõe: o grupo
+     quebra de linha antes de encostar na leitura. */
+  .studio-transporte{display:flex;align-items:center;gap:10px 14px;padding:9px 12px;
+    background:#11161d;border-top:1px solid var(--line);flex:none;flex-wrap:wrap;
+    /* o transporte não sai da tela: em altura pequena ele continua visível */
+    position:sticky;bottom:0;z-index:8}
+  .tr-grupo{display:flex;align-items:center;gap:6px;flex:none}
+  .tr-btn{position:relative;width:38px;height:38px;border-radius:10px;
+    background:#18202a;border:1px solid #253140;color:#c3cedb;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:0;transition:background .12s,border-color .12s,color .12s,transform .06s}
+  .tr-btn svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.9;
+    stroke-linecap:round;stroke-linejoin:round}
+  .tr-btn:hover{background:#202b38;border-color:#37485a;color:#fff}
+  .tr-btn:active{transform:translateY(1px)}
+  .tr-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .tr-btn small{font-size:8px;letter-spacing:.04em;color:#7d8b9a;margin-top:-1px;
+    text-transform:uppercase;line-height:1}
+  /* PLAY: destacado em verde, alterna com Pause (o ícone troca junto) */
+  .tr-play{width:46px;height:46px;border-radius:50%;background:var(--accent);
+    border:0;color:#06170e;box-shadow:0 3px 14px rgba(95,208,160,.32)}
+  .tr-play:hover{background:#6fe0b0;color:#06170e}
+  .tr-play svg{width:21px;height:21px;fill:currentColor;stroke:none}
+  .tr-play .ic-pause{display:none;fill:none;stroke:currentColor;stroke-width:2.4}
+  body.tocando .tr-play .ic-play{display:none}
+  body.tocando .tr-play .ic-pause{display:block}
+  /* STOP: quadrado preenchido, como manda o padrão de DAW */
+  .tr-btn[id="trStop"] svg rect{fill:currentColor;stroke:none}
+  .tr-btn[id="trStop"]:hover{color:#ffb9b4;border-color:#6d3a38;background:#2a1b1b}
+  /* Loop ativo */
+  .tr-btn.on{background:#1d3a2c;border-color:#2f7a55;color:#9ff0c8}
+  .tr-btn.on::after{content:"";position:absolute;top:3px;right:3px;width:5px;height:5px;
+    border-radius:50%;background:#5fd0a0}
+  .tr-btn.tr-comp{width:40px}
+  .tr-tempo{font-variant-numeric:tabular-nums;font-size:15px;color:var(--text);
+    letter-spacing:.01em;white-space:nowrap;margin-left:4px}
+  .tr-tempo i{color:#41505f;font-style:normal;margin:0 4px}
+  .tr-tempo span:last-child{color:#8794a3;font-size:13px}
+  .tr-compasso{font-size:11.5px;color:#aab6c4;border:1px solid var(--line);
+    border-radius:7px;padding:5px 9px;min-width:46px;text-align:center;
+    font-variant-numeric:tabular-nums;background:#0f151b;white-space:nowrap}
+  .tr-info-grupo{display:flex;align-items:center;gap:7px;margin-left:auto;flex-wrap:wrap}
+  .tr-info{font-size:11.5px;color:var(--muted);border:1px solid var(--line);
+    background:#141b23;border-radius:7px;padding:5px 9px;white-space:nowrap;font-family:inherit}
+  .tr-contagem{cursor:pointer}
+  .tr-contagem:hover{color:var(--text);border-color:#3a4757}
+  .studio-salvo{position:absolute;right:12px;bottom:60px;z-index:40;
+    background:#15251c;border:1px solid #2c5f4a;color:#9fe8c4;
+    border-radius:8px;padding:7px 11px;font-size:11.5px;
+    box-shadow:0 10px 28px rgba(0,0,0,.5)}
+
+  /* tooltip único (posicionado pelo JS): `data-dica` em qualquer controle.
+     O `title` nativo demora ~1 s e não aparece no toque; este responde na
+     hora e serve para mouse e teclado. */
+  #dicaFlutuante{position:fixed;z-index:2000;pointer-events:none;
+    background:#0b1017;border:1px solid #2a3644;border-radius:7px;
+    padding:5px 9px;font-size:11.5px;color:#dbe4ee;white-space:nowrap;
+    box-shadow:0 8px 24px rgba(0,0,0,.6);opacity:0;transform:translateY(2px);
+    transition:opacity .1s,transform .1s}
+  #dicaFlutuante.on{opacity:1;transform:translateY(0)}
+
+  /* legenda de cores (gerada) */
+  .legenda-studio{display:flex;flex-wrap:wrap;gap:6px 12px;margin:8px 0 4px;
+    font-size:10.5px;color:var(--muted)}
+  .legenda-studio span{display:flex;align-items:center;gap:5px}
+  .legenda-studio i{width:8px;height:8px;border-radius:2px;display:block}
+
+  /* modo ao vivo: tela cheia, só o palco */
   body.ao-vivo .studio{position:fixed;inset:0;margin:0;border-radius:0;z-index:900;
-                       display:flex!important;flex-direction:column}
-  body.ao-vivo .studio-grade{max-height:none;flex:1}
-  body.ao-vivo .studio-transporte{padding:14px}
+    display:flex!important;flex-direction:column;--h-linha:74px}
+  body.ao-vivo .studio-corpo{flex:1}
+  body.ao-vivo .studio-transporte{padding:12px 16px}
   body.ao-vivo header,body.ao-vivo .lateral,body.ao-vivo .card:not(.result){display:none}
   body.ao-vivo .card.result{position:fixed;inset:0;z-index:899;margin:0;
-                            border-radius:0;overflow:auto;background:#070a0e}
-  body.ao-vivo .studio-topo,
-  body.ao-vivo #files,body.ao-vivo #warns,body.ao-vivo .kpis,
-  body.ao-vivo #sections,body.ao-vivo #harmonia{display:none}
-  /* área de trabalho maior: esconde a lateral (o botão ▤ da ferramenta) */
+    border-radius:0;overflow:auto;background:#070a0e;padding:0}
+  body.ao-vivo .kpis,body.ao-vivo #sections,body.ao-vivo #warns,
+  body.ao-vivo .legenda-studio{display:none}
+  /* sem lateral: área de trabalho inteira para o editor */
   body.sem-lateral .lateral{display:none}
   body.sem-lateral .app{grid-template-columns:minmax(0,1fr)}
+  body.sem-lateral .studio{height:clamp(360px, calc(100vh - 190px), 1100px)}
+
+  /* telas grandes: painel proporcionalmente maior, faixas mais altas */
+  @media (min-width:1600px){
+    .studio{--painel:260px;--h-linha:78px;height:clamp(420px, calc(100vh - 300px), 1100px)}
+  }
+  @media (min-width:2100px){
+    .studio{--painel:300px;--h-linha:84px;height:clamp(480px, calc(100vh - 320px), 1200px)}
+  }
+  /* 1366x768 e afins: o editor ocupa a tela, faixas um pouco mais baixas */
+  @media (max-height:820px){
+    .studio{--h-linha:54px;height:clamp(320px, calc(100vh - 250px), 700px)}
+    body.sem-lateral .studio{height:calc(100vh - 150px)}
+  }
+
+  /* telas menores: painel mais estreito, transporte quebra em duas linhas */
+  @media (max-width:1200px){
+    .studio{--painel:206px}
+    .ferr-campo span{display:none}
+  }
+  @media (max-width:1200px){
+    .tr-btn{width:34px;height:34px}
+    .tr-play{width:42px;height:42px}
+    .master-range{width:74px}
+  }
+  @media (max-width:980px){
+    .studio{--painel:184px;--h-linha:66px}
+    .studio-transporte{gap:5px;padding:7px 9px}
+    .tr-tempo{min-width:80px;font-size:12px}
+  }
+  @media (max-width:760px){
+    /* em tela muito estreita o pan sai (fica no menu ⋯) e o painel encolhe,
+       mas os sliders continuam utilizáveis */
+    .studio{--painel:150px}
+    .faixa-pan,.ctrl-rot ~ .ctrl-val.pan-val{display:none}
+    .tr-info{font-size:10.5px;padding:4px 7px}
+  }
+
   /* ---------- faixa de acordes + guia (referencia: CueWee) ---------- */
   .harmonia{margin:14px 0 4px;border:1px solid var(--line);border-radius:12px;
             background:var(--panel2);padding:11px 12px}
@@ -631,7 +845,7 @@ python -m pip install demucs</pre>
       </label>
       <label class="apoio" for="optLR">
         <input type="checkbox" id="optLR" checked>
-        <span><b>Ensaio L/R</b><small>Estéreo de palco: clique+guia no L, banda no R.</small></span>
+        <span><b>Ensaio L/R</b><small>Gera arquivo estéreo de palco: clique+guia (L) e banda (R).</small></span>
       </label>
     </fieldset>
 
@@ -655,8 +869,12 @@ python -m pip install demucs</pre>
     <img id="capaResultado" class="capa-resultado" style="display:none" alt="Capa salva na pasta">
     <h2 id="folder" style="margin:4px 0 10px;font-size:19px"></h2>
     <div class="kpis" id="kpis"></div>
+    <!-- Aqui ficava um SEGUNDO editor de cifras (cards com barra de
+         confiança), desenhado fora do Studio. Era a maior fonte de bagunça
+         visual: duas listas de acordes na mesma tela, com numeração de
+         compasso diferente da régua, e uma barra de rolagem própria. A
+         cifra agora existe num lugar só: a linha de cifra da timeline. -->
     <div id="sections"></div>
-    <div id="harmonia"></div>
 
     <!-- ================= STUDIO =================
          Referência: o Studio do CueWee (capturas enviadas). Estrutura, de
@@ -672,22 +890,34 @@ python -m pip install demucs</pre>
          para o que precisa ser clicável.
     -->
     <div class="studio" id="studio" style="display:none">
+      <!-- CABEÇALHO: identificação compacta, como numa DAW. -->
       <div class="studio-topo">
+        <div class="studio-icone" id="studioIcone" aria-hidden="true"></div>
         <div class="studio-titulo">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-               stroke-width="1.7" aria-hidden="true"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>
           <b id="studioNome">—</b>
-        </div>
-        <div class="studio-meta">
-          <span id="studioTom" title="Tom detectado">♫ —</span>
-          <span id="studioBpm" title="BPM detectado">— BPM</span>
-          <span id="studioDur" title="Duração">0:00</span>
+          <div class="studio-sub">
+            <span id="studioTom" title="Tom (transponível)">♫ —</span>
+            <span id="studioBpm" title="BPM">⏱ — BPM</span>
+            <span id="studioDur" title="Duração">◷ 0:00</span>
+          </div>
         </div>
         <div class="studio-acoes">
+          <!-- VOLUME GERAL (master). É um GainNode único no fim da cadeia:
+               abaixa tudo junto e não mexe nos volumes das faixas. -->
+          <label class="master" title="Volume geral: abaixa ou sobe todas as faixas juntas">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+            <input id="masterVol" class="master-range" type="range" min="0" max="100" step="1"
+                   value="85" aria-label="Volume geral">
+            <span id="masterVal">85%</span>
+          </label>
           <div class="exportar-wrap">
-            <button class="secundario mini" id="studioExportar" type="button"
+            <button class="mini" id="studioExportar" type="button"
                     aria-expanded="false" aria-controls="menuExportar">⇩ Exportar música</button>
             <div class="menu-exportar" id="menuExportar" hidden>
+              <button id="expMix" type="button">Mixagem (WAV)
+                <small>as faixas com volume, mute, solo e pan como estão agora</small></button>
+              <button id="expProjeto" type="button">Salvar projeto
+                <small>cifra, seções, compasso, BPM e tom — no disco</small></button>
               <a id="expLR" href="#" download>ENSAIO_LR.wav <small>clique + guia | banda</small></a>
               <a id="expClique" href="#" download>clique.wav <small>metrônomo</small></a>
               <a id="expGuia" href="#" download>guia.wav <small>contagem e anúncios</small></a>
@@ -699,63 +929,151 @@ python -m pip install demucs</pre>
         </div>
       </div>
 
+      <!-- BARRA DE FERRAMENTAS: só o que muda a edição (não transporte). -->
       <div class="studio-ferramentas">
         <button class="ferr" id="fMetro" type="button" title="Ligar/desligar o clique">⏱</button>
-        <button class="ferr" id="fLoop" type="button" title="Repetir o trecho selecionado (L)">⟳</button>
+        <button class="ferr" id="fLoop" type="button" title="Repetir o trecho (L)">⟳</button>
         <button class="ferr" id="fMarcar" type="button" title="Marcar seção no ponto atual">⚑</button>
-        <select id="fZoom" class="ferr-sel" title="Zoom da timeline">
-          <option value="0.5">zoom 50%</option>
-          <option value="1" selected>zoom 100%</option>
-          <option value="1.6">zoom 160%</option>
-          <option value="2.4">zoom 240%</option>
-        </select>
+        <span class="ferr-sep"></span>
+        <label class="ferr-campo" title="Fórmula de compasso: quantos tempos por compasso">
+          <span>Compasso</span>
+          <select id="fCompasso" class="ferr-sel">
+            <option value="2/4">2/4</option>
+            <option value="3/4">3/4</option>
+            <option value="4/4">4/4</option>
+            <option value="6/8">6/8</option>
+            <option value="12/8">12/8</option>
+          </select>
+        </label>
+        <label class="ferr-campo" title="Andamento da grade (mover a régua, não o áudio)">
+          <span>BPM</span>
+          <input id="fBpm" class="ferr-num" type="number" min="40" max="300" step="1" value="120">
+        </label>
+        <label class="ferr-campo" title="Tom de exibição da cifra (transpõe os acordes)">
+          <span>Tom</span>
+          <select id="fTom" class="ferr-sel"></select>
+        </label>
+        <span class="ferr-sep"></span>
+        <label class="ferr-campo" title="Zoom da linha do tempo (não muda a duração da música)">
+          <span>Zoom</span>
+          <input id="fZoomRange" class="ferr-range" type="range" min="1" max="40" step="0.5" value="6">
+        </label>
+        <label class="ferr-campo" title="Zoom das formas de onda (independente do zoom da régua)">
+          <span>Onda</span>
+          <input id="fWavZoom" class="ferr-range ferr-range-curto" type="range" min="1" max="8" step="0.5" value="1">
+        </label>
+        <label class="ferr-campo" title="Altura das linhas de faixa">
+          <span>Altura</span>
+          <input id="fAltura" class="ferr-range ferr-range-curto" type="range" min="40" max="140" step="2" value="62">
+        </label>
         <span class="ferr-dica" id="ferrDica"></span>
         <button class="ferr" id="fMenu" type="button" title="Esconder o menu lateral e aumentar a área de trabalho" aria-pressed="false">▤</button>
       </div>
 
-      <div class="studio-grade" id="studioGrade">
-        <div class="col-rótulos" id="colRotulos">
-          <div class="rotulo-vazio"></div>
-          <div class="rotulo-cifra">Cifra</div>
-          <div class="rotulo-faixa" data-tipo="clique"><span>Click</span></div>
-          <div class="rotulo-faixa" data-tipo="guia"><span>Guia</span></div>
+      <!-- GRADE: painel esquerdo fixo + régua fixa + faixas que rolam JUNTAS.
+           A versão anterior tinha um grid de 2 colunas com 3 filhos: a coluna
+           dos stems caía numa segunda linha (o "buraco preto" da captura) e
+           não havia rolagem horizontal de verdade. -->
+      <div class="studio-corpo" id="studioCorpo">
+        <div class="studio-painel" id="studioPainel">
+          <div class="painel-topo">
+            <span class="painel-formula" id="painelFormula">4/4</span>
+            <span class="painel-info" id="painelInfo"></span>
+          </div>
+          <div class="painel-linha painel-cifra">
+            <span>Cifra</span>
+            <button class="painel-mini" id="cifraEditar" type="button"
+                    title="Clique num compasso para digitar o acorde · Delete apaga">editar</button>
+          </div>
+          <div class="painel-faixas" id="painelFaixas"></div>
         </div>
-        <div class="col-tempo" id="colTempo">
-          <div class="tempo-rolagem" id="tempoRolagem">
+
+        <div class="studio-tempo" id="studioTempo">
+          <div class="tempo-conteudo" id="tempoRolagem">
             <div class="regua" id="regua"></div>
             <div class="linha-cifra" id="linhaCifra"></div>
-            <div class="trilha" id="trilhaClique" data-tipo="clique"></div>
-            <div class="trilha" id="trilhaGuia" data-tipo="guia"></div>
+            <!-- A grade é preenchida por studioCriarFaixa(), uma trilha por
+                 faixa. Deixar trilhas fixas aqui criava trilhas-fantasma (a
+                 lista do painel ficava com N itens e a timeline com N+2). -->
+            <div class="grade-faixas" id="gradeFaixas"></div>
+            <!-- região selecionada (arrastar na régua): é o que o LOOP repete -->
+            <div class="selecao-tempo" id="selecaoTempo" hidden></div>
           </div>
+          <div class="cabeca-vertical" id="cabecaVertical"></div>
         </div>
-        <div class="col-stems" id="colStems"></div>
       </div>
 
-      <div class="studio-transporte">
-        <button class="play-g" id="playG" type="button" aria-label="Tocar">▶</button>
-        <button class="tr" id="trVoltar" type="button" title="Voltar ao início">⏮</button>
-        <button class="tr" id="trAnterior" type="button" title="Compasso anterior">⏪</button>
-        <button class="tr" id="trProximo" type="button" title="Próximo compasso">⏩</button>
-        <button class="tr" id="trLoop" type="button" title="Loop">⟳</button>
-        <div class="tr-tempo"><span id="trAtual">0:00</span> / <span id="trTotal">0:00</span></div>
-        <div class="tr-info" id="trTom">♫ F#m</div>
-        <div class="tr-info" id="trBpm">♩ 150 BPM</div>
-        <div class="tr-info" id="trContagem">123 Sem Pré-contagem</div>
+      <!-- TRANSPORTE: barra inferior fixa. Oito controles, um por função —
+           nada de dois botões fazendo a mesma coisa (era o caso de "Início" e
+           "Compasso anterior" no começo da música). Ícones no traço do Lucide,
+           desenhados inline: sem CDN, funciona offline. -->
+      <div class="studio-transporte" id="studioTransporte" role="group" aria-label="Transporte">
+        <div class="tr-grupo">
+          <button class="tr-btn tr-play" id="playG" type="button"
+                  aria-label="Reproduzir" data-dica="Reproduzir (Espaço)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path class="ic-play" d="M7 4.5v15l13-7.5z"/><path class="ic-pause" d="M8 4.5v15M16 4.5v15"/></svg>
+          </button>
+          <button class="tr-btn" id="trStop" type="button"
+                  aria-label="Parar" data-dica="Parar e voltar ao início">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+          </button>
+          <button class="tr-btn" id="trInicio" type="button"
+                  aria-label="Ir para o início" data-dica="Ir para o início (Home)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M19 5 9 12l10 7z"/></svg>
+          </button>
+          <button class="tr-btn" id="trVoltar" type="button"
+                  aria-label="Retroceder 5 segundos" data-dica="Retroceder 5 s (←)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 5v5h5"/></svg>
+          </button>
+          <button class="tr-btn" id="trAvancar" type="button"
+                  aria-label="Avançar 5 segundos" data-dica="Avançar 5 s (→)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 5v5h-5"/></svg>
+          </button>
+          <button class="tr-btn tr-comp" id="trAnterior" type="button"
+                  aria-label="Compasso anterior" data-dica="Compasso anterior (PgUp)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 9 12l9 6zM6 5v14"/></svg>
+            <small>comp</small>
+          </button>
+          <button class="tr-btn tr-comp" id="trProximo" type="button"
+                  aria-label="Próximo compasso" data-dica="Próximo compasso (PgDn)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l9 6-9 6zM18 5v14"/></svg>
+            <small>comp</small>
+          </button>
+          <button class="tr-btn" id="trLoop" type="button"
+                  aria-label="Repetir" aria-pressed="false" data-dica="Repetir (L) — no trecho selecionado ou na música toda">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 0 1 13.7-5.6L21 8"/><path d="M21 3v5h-5"/><path d="M20 13a8 8 0 0 1-13.7 5.6L3 16"/><path d="M3 21v-5h5"/></svg>
+          </button>
+          <button class="tr-btn" id="trSecao" type="button"
+                  aria-label="Próxima seção" data-dica="Ir para a próxima seção marcada">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16l7-4 7 4V4z"/></svg>
+          </button>
+        </div>
+
+        <div class="tr-tempo" title="Tempo atual / duração total">
+          <span id="trAtual">0:00</span><i>/</i><span id="trTotal">0:00</span>
+        </div>
+        <div class="tr-compasso" id="trCompasso" title="Compasso atual / total">1/1</div>
+
+        <div class="tr-info-grupo">
+          <div class="tr-info" id="trTom" title="Tom da cifra">♫ —</div>
+          <div class="tr-info" id="trBpm" title="Andamento">♩ — BPM</div>
+          <button class="tr-info tr-contagem" id="trContagem" type="button"
+                  title="Pré-contagem antes de cada seção">123 Sem Pré-contagem</button>
+        </div>
       </div>
+      <div class="studio-salvo" id="studioSalvo" hidden></div>
     </div>
 
-    <!-- Lista de arquivos. Antes a coluna "Arquivo" repetia o nome longo da
-         pasta (GetWorship...-158BPM_01_vocals.mp3) e empurrava a tabela para
-         fora da tela. Agora mostra o NOME CURTO do stem (Mix, Voz, Bateria,
-         Baixo...) e o arquivo só no tooltip. -->
-    <table id="files" class="arquivos">
-      <thead><tr><th>Stem</th><th>Arquivo</th><th>Abrir</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <!-- Legenda curta: o que cada cor de faixa significa (as cores saem do
+         stem, então a legenda é gerada, não fixa no HTML). -->
+    <div id="legendaStudio" class="legenda-studio"></div>
+
+    <div id="files" hidden></div>
     <div id="warns"></div>
   </div><!-- /coluna -->
 </div><!-- /app -->
 </main>
+<div id="dicaFlutuante" role="tooltip" aria-hidden="true"></div>
 <div id="lightbox"><img id="lightboxImg" alt="Capa do vídeo"></div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -804,7 +1122,7 @@ function iconeInst(id){
 
 /* Monta o seletor de instrumentos como cartoes clicaveis (referencia:
    tela de instrumentos do CueWee). Mantem os mesmos <input type=checkbox>
-   de antes, entao `lerStems()` e o resto do codigo nao mudam. */
+   de antes, entao o resto do codigo nao muda. */
 function montarInstrumentos(){
   const chips = $("chips");
   if (!chips || !STATUS) return;
@@ -1474,7 +1792,7 @@ function opcoesDeEnsaio() {
     guia: $("optGuia").checked,
     contagem: parseInt($("optContagem").value, 10) || 4,
     acordes: $("optAcordes").checked,
-    lr: $("optLR") ? $("optLR").checked : true,
+    exportar_lr: $("optLR") ? $("optLR").checked : true,
   };
 }
 
@@ -1482,47 +1800,13 @@ function opcoesDeEnsaio() {
 // compasso, com o acorde em destaque e a confiança como barra embaixo.
 // Compasso sem confiança fica com "?" — melhor admitir do que inventar cifra.
 function renderHarmonia(d) {
-  const alvo = $("harmonia");
-  const acordes = d.acordes || [];
-  const guia = d.guia || "";
-  const clique = d.clique || "";
-  if (!acordes.length && !guia && !clique) { alvo.innerHTML = ""; return; }
-
-  const conf = typeof d.compasso_confianca === "number" ? d.compasso_confianca : 0;
-  const classe = conf >= 0.5 ? "ok" : "duvida";
-  const partes = [`<div class="harmonia">`];
-  partes.push(`<div class="harmonia-topo">
-      <b>Faixa de ensaio</b>
-      <span class="tag ${classe}">${d.compasso || 4}/4 · confiança ${conf.toFixed(2)}</span>
-      <span class="tag">${acordes.length} compasso${acordes.length === 1 ? "" : "s"}</span>
-    </div>`);
-
-  if (acordes.length) {
-    partes.push(`<div class="compassos">`);
-    for (const a of acordes) {
-      const c = Math.max(0, Math.min(1, Number(a.confianca) || 0));
-      const nome = c < 0.2 ? "?" : (a.acorde || "?");
-      partes.push(`<div class="compasso" title="Compasso ${a.compasso} · início ${fmtTempo(a.inicio)} · confiança ${c.toFixed(2)}">
-          <b>${nome}</b><small>${a.compasso}</small>
-          <div class="barra"><i style="width:${Math.round(c * 100)}%"></i></div>
-        </div>`);
-    }
-    partes.push(`</div>`);
-  }
-
-  const itens = [];
-  if (clique) itens.push(`<div class="guia-item"><b>clique.wav</b> metrônomo</div>`);
-  if (guia) itens.push(`<div class="guia-item"><b>guia.wav</b> contagem + anúncio das seções</div>`);
-  if (itens.length) partes.push(`<div class="guias">${itens.join("")}</div>`);
-  partes.push(`</div>`);
-  alvo.innerHTML = partes.join("");
-}
-
-function fmtTempo(seg) {
-  seg = Number(seg) || 0;
-  const m = Math.floor(seg / 60);
-  const s = Math.floor(seg % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+  /* A "Faixa de ensaio" em cards foi removida junto com o elemento
+     #harmonia: ela era um segundo editor de cifras, com números de compasso
+     que não batiam com a régua do Studio e uma barra de rolagem própria.
+     A cifra, o clique e a guia agora existem só na timeline, onde ficam
+     alinhados com o áudio. A função fica como no-op para não quebrar
+     chamadas antigas (render() e os testes). */
+  return d;
 }
 
 $("go").onclick = async () => {
@@ -1571,187 +1855,1617 @@ $("go").onclick = async () => {
 };
 
 // ============================================================================
-// STUDIO
+// STUDIO — editor multipista
 // ============================================================================
-// Clone da tela do CueWee Studio (foto enviada), com o mesmo desenho:
+// Regras que este arquivo segue (e que a versão anterior quebrava):
 //
-//   régua de compasso em cima → cifra logo abaixo → uma faixa por stem →
-//   transporte embaixo com play, loop, tempo, tom, BPM e pré-contagem.
+//  1. UMA fonte de verdade. `Studio.tempo` é a posição de reprodução, lida do
+//     elemento de áudio de referência. Nada de outro contador paralelo: era
+//     daí que vinha o cursor "andando sozinho" em relação ao som.
 //
-// Como funciona o sincronismo: cada stem é um <audio> próprio, e o tempo
-// mestre é o do primeiro elemento. Desenhar a cabeça de reprodução é uma
-// função pura de `tempo` — nada de animação "de mentira". A cifra que "anda
-// com a música" é a célula cujo intervalo contém o tempo atual: ela acende.
+//  2. A posição musical vem do compasso, não do pixel. `compassoDe(t)` acha o
+//     compasso pela grade de batidas; pixel é só a projeção de um tempo.
+//     Assim zoom, rolagem e BPM nunca desalinham a numeração.
 //
-// Por que canvas nas formas de onda: 7 faixas × minutos de áudio = milhares
-// de pontos; em DOM isso trava a rolagem. O resto (régua, cifra, botões) é
-// DOM porque precisa ser clicável.
+//  3. Todo controle faz algo de verdade ou não existe. Os que dependem do
+//     servidor (exportar mixagem, salvar projeto) chamam as rotas /api e
+//     mostram erro quando falham — nada de simulação.
+//
+//  4. Mute/Solo/Volume/Pan mexem no áudio (elemento + Web Audio gain), nunca
+//     só na cor do botão.
+
 const Studio = window.Studio = {
-  dados: null,          // payload do /api/run ou da biblioteca
+  dados: null,
+  // --- linha do tempo -----------------------------------------------------
   batidas: [],
   compasso: 4,
+  bpm: 120,
+  duracao: 0,
   acordes: [],
   secoes: [],
-  duracao: 0,
-  faixas: [],           // {stem, el, mudo, solo, volume, canvas, cor}
-  ensaio: [],           // clique e guia tocando junto (volume próprio)
+  tom: "",
+  // tom do projeto (onde os acordes gravados estão) e tom da visão
+  // (projeto + transposição). Misturar os dois fazia o acorde digitado
+  // durante uma transposição ser gravado na clave errada.
+  tomProjeto: "",
+  tomExibido: "",
+  // volume geral (o slider do topo) — não substitui o volume das faixas
+  masterVolume: 0.85,
+  // terminou de tocar e está parado no fim: o próximo Play recomeça do zero
+  finalizado: false,
+  // zoom só das formas de onda (independente do zoom da linha do tempo)
+  zoomOnda: 1,
+  // faixas escondidas da timeline (continuam montadas: o áudio não muda)
+  ocultas: {},
+  // altura das linhas (redimensionável)
+  alturaLinha: 0,
+  // região selecionada na régua (arrastar) — é o que o loop repete
+  selecao: null,
+  transposicao: 0,
+  // --- estado de reprodução ----------------------------------------------
   tocando: false,
+  tempo: 0,
   timer: null,
+  // --- áudio --------------------------------------------------------------
+  faixas: [],      // {id, nome, el, ganho, mudo, solo, volume, pan, cor, ...}
+  ensaio: [],      // clique e guia
   ctx: null,
-  raf: null,
+  relogio: 0,      // performance.now() do último play
+  relogioTempo: 0,
+  // --- edição -------------------------------------------------------------
   zoom: 1,
-  pxPorSeg: 6,
+  pxPorSeg: 8,
   loop: false,
   loopA: null,
   loopB: null,
-  metronomo: false,
+  metronomo: true,
   aoVivo: false,
+  contagem: 0,     // tempos de pré-contagem (0 = desligada)
+  selecionada: null,
+  arrastando: false,
+  salvoTimer: null,
 };
 
-const CORES = {
-  vocals:"#e05c5c", drums:"#4f9dde", bass:"#3fae7a", guitar:"#d9a441",
-  piano:"#b07fc9", other:"#9a9a9a", mix:"#5fd0a0", instrumental:"#8a8a8a",
-  kick:"#3f7fb5", snare:"#5aa9c9", hihat:"#7ec8d8", percussion:"#6d9a8a",
-  keys:"#a37fd0", fx:"#c9a15f", loops:"#7fa3c9",
-};
-const ORDEM_FAIXA = ["mix", "vocals", "drums", "bass", "guitar", "piano", "other"];
-
-function corDe(stem, i){
-  if (CORES[stem]) return CORES[stem];
-  const paleta = ["#5fd0a0","#4f9dde","#d9a441","#e05c5c","#b07fc9","#3fae7a"];
-  return paleta[i % paleta.length];
+// Ordem fixa das faixas (mix por último: é a soma de todas).
+/** Chave de rótulo a partir do nome da faixa.
+ *
+ *  Quando a música vem da BIBLIOTECA, a chave é o nome do arquivo inteiro
+ *  ("GetWorship_01_vocals"), não o tipo do stem. Sem isto o painel mostrava
+ *  "demomix-96BPM_01_vocals" em vez de "Vocais" em toda música reaberta.
+ */
+function tipoDoStem(chave){
+  const k = String(chave || "").toLowerCase();
+  if (LABEL[k]) return k;
+  // procura o tipo mais longo que apareça como palavra no nome
+  const tipos = Object.keys(LABEL).sort((a, b) => b.length - a.length);
+  for (const tipo of tipos){
+    if (new RegExp("(^|[^a-z])" + tipo + "($|[^a-z])").test(k)) return tipo;
+  }
+  return "other";
 }
 
-// --------------------------------------------------------------- montagem --
+/** `_MIX.wav` é o arquivo que o próprio editor exportou (não é um stem).
+ *
+ *  Tocar os dois junto com os stems somava a música duas vezes; e o export
+ *  pode estar em outro formato/taxa, o que desalinhava a timeline.
+ */
+function ehMixExportado(nome){
+  const n = String(nome || "");
+  // stems têm número de ordem no meio do nome ("<projeto>_00_mix.wav"); o
+  // arquivo exportado é "<projeto>_MIX.wav", sem numeração. O teste tem de ser
+  // no NOME SEM EXTENSÃO: com ".ogg" na comparação, `00_mix.ogg` também casava
+  // e o mix desaparecia da timeline.
+  const semExt = n.replace(/\.[a-z0-9]+$/i, "");
+  if (/_\d{2}_/.test(semExt) || /_\d{2}$/.test(semExt)) return false;
+  // "00_mix" (numeração no INÍCIO) também é stem: o exportado tem o sufixo
+  // _MIX depois de um nome de projeto, nunca no começo nem depois de número
+  if (/^\d{2}_/.test(semExt)) return false;
+  return /_MIX$/i.test(semExt);
+}
+
+/** Rótulo curto ("Vocais") para qualquer chave de faixa. */
+function rotuloDaFaixa(chave){
+  const tipo = tipoDoStem(chave);
+  if (LABEL[tipo]) return LABEL[tipo];
+  // tipo desconhecido: o nome do arquivo, sem prefixo de projeto e sem
+  // numeração de stem — é o mais legível que existe sem inventar
+  return String(chave || "")
+    .replace(/^.*?_\d{2}_/, "")
+    .replace(/[_-]+/g, " ")
+    .trim() || String(chave || "");
+}
+
+const ORDEM_FAIXA = ["clique", "guia", "vocals", "drums", "bass", "guitar",
+                     "piano", "keys", "other", "instrumental", "mix"];
+
+// Cores por stem: as da referência (voz vermelha, bateria dourada, baixo
+// oliva, guitarra verde, piano turquesa) mais clique cinza-azulado e guia roxo.
+const CORES = {
+  clique:"#8595ad", guia:"#a78bfa",
+  vocals:"#e05c5c", drums:"#d9a441", bass:"#8fae4f", guitar:"#3fae7a",
+  piano:"#4fc7c1", keys:"#57b6d6", other:"#9a9a9a", instrumental:"#8a8a8a",
+  mix:"#7d8b9c", kick:"#3f7fb5", snare:"#5aa9c9", hihat:"#7ec8d8",
+  percussion:"#6d9a8a", fx:"#c9a15f", loops:"#7fa3c9", ensaio_lr:"#c9a15f",
+};
+const NOME_FAIXA = {clique:"Click", guia:"Guia"};
+const PALETA = ["#5fd0a0","#4f9dde","#d9a441","#e05c5c","#b07fc9","#3fae7a","#c7a24f"];
+
+// ---------------------------------------------------------------- música ----
+const NOTAS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const NOTAS_BEMOL = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+// Índices (C=0) das tônicas que se escrevem com bemol. Índices, e não
+// nomes: "F#" e "Gb" são o mesmo índice, então decidir pelo nome do acorde
+// daria respostas diferentes para o mesmo som. Fica de fora o que a música
+// popular escreve com sustenido mesmo tendo armadura bemol (F# é F# e não Gb,
+// B é B e não Cb) — só a tônica não decide; o tom inteiro decide.
+const TONS_BEMOL = new Set([5, 10, 3, 8, 1]);   // F, Bb, Eb, Ab, Db
+const MODOS_ACORDE = ["", "m", "7", "m7", "maj7", "m7b5", "dim", "aug", "sus2",
+                      "sus4", "6", "m6", "9", "add9", "7sus4", "dim7"];
+
+function indiceNota(nome){
+  if (!nome) return -1;
+  const n = String(nome).trim().replace("♯", "#").replace("♭", "b");
+  if (!n) return -1;
+  // O tom vem como "F# menor" ou "A maior": a nota é a PRIMEIRA palavra.
+  // Casar a string inteira (erro da versão anterior) devolvia -1 para todo
+  // tom com modo escrito — e daí a transposição não fazia nada.
+  const primeira = n.split(/[\s\/]+/)[0];
+  const base = primeira[0].toUpperCase() + primeira.slice(1);
+  const i = NOTAS.indexOf(base);
+  if (i >= 0) return i;
+  return NOTAS_BEMOL.indexOf(base);
+}
+
+/** Soma semitons a um nome de acorde preservando a qualidade ("F#m7" -> "Gm7"). */
+function transporAcorde(nome, semitons, bemóis){
+  if (!nome) return nome;
+  const casou = /^([A-G][#b]?)(.*)$/.exec(nome.trim());
+  if (!casou) return nome;                       // "?" e afins passam direto
+  const base = indiceNota(casou[1]);
+  if (base < 0) return nome;
+  const novo = ((base + semitons) % 12 + 12) % 12;
+  const tabela = bemóis ? NOTAS_BEMOL : NOTAS;
+  return tabela[novo] + casou[2];
+}
+
+/** Rótulo que a cifra mostra: acorde transposto, ou "?" quando indefinido. */
+function rotuloAcorde(a){
+  if (!a) return "";
+  const bruto = a.acorde == null ? "" : String(a.acorde).trim();
+  if (!bruto || bruto === "?") return "?";
+  // A grafia segue o TOM (F# menor escreve F#, não Gb); sem tom, segue o
+  // que o detetor já usou. Forçar bemol sempre transformava F#m7 em Gbm7.
+  try { return transporAcorde(bruto, Studio.transposicao, usarBemol(Studio.tomExibido || Studio.tom)); }
+  catch (_) { return bruto; }
+}
+
+function usarBemol(tom){
+  const i = indiceNota(String(tom || "").split(" ")[0]);
+  if (i < 0) return true;
+  return TONS_BEMOL.has(i);
+}
+
+// -------------------------------------------------------------- geometria ---
+// `xDe`/`segDe` são as únicas conversões entre tempo e pixel. Tudo (régua,
+// cifra, faixas, cursor) passa por elas, e é por isso que ficam alinhados.
+function xDe(seg){ return seg * Studio.pxPorSeg; }
+function segDe(x){ return x / Studio.pxPorSeg; }
+
+function beatDe(t){
+  const b = Studio.batidas;
+  if (!b.length) return 0;
+  let i = 0;
+  for (let k = 0; k < b.length; k++) if (b[k] <= t + 1e-6) i = k;
+  return i;
+}
+
+function compassoDe(t){ return Math.floor(beatDe(t) / Math.max(1, Studio.compasso)); }
+
+/** Denominação da fórmula: 4 = semínima, 8 = colcheia.
+ *
+ *  Em 6/8 e 12/8 o tempo NÃO é a semínima — é a colcheia pontuada (grupo de
+ *  3). Contar batidas como se fossem semínimas em 6/8 dobrava a duração de
+ *  cada compasso e jogava régua, cifra e playhead fora do áudio.
+ */
+function denominadorCompasso(){ return Studio.denominador === 8 ? 8 : 4; }
+
+/** Quantas batidas (unidades de `batidas`) formam um compasso. */
+function batidasPorCompasso(){
+  const c = Math.max(1, Studio.compasso);
+  // o detector entrega batidas na semínima; em compassos de colcheia, o
+  // compasso tem c/2 semínimas (6/8 = 3 semínimas, 12/8 = 6)
+  return denominadorCompasso() === 8 ? Math.max(1, Math.round(c / 2)) : c;
+}
+
+/** Subdivisões mostradas dentro do compasso, para a fórmula pedida. */
+function subdivisoesPorCompasso(){ return Math.max(1, Math.round(Studio.compasso)); }
+
+/** Início (em segundos) do compasso n. Fora da grade, extrapola pelo BPM. */
+function inicioDoCompasso(n){
+  const b = Studio.batidas, c = batidasPorCompasso();
+  if (b.length){
+    const i = n * c;
+    if (i < b.length) return b[i];
+    const passo = (Studio.bpm ? 60 / Studio.bpm : 0.5);
+    return b[b.length - 1] + (i - (b.length - 1)) * passo;
+  }
+  return n * c * (60 / Math.max(1, Studio.bpm));
+}
+
+function totalCompassos(){
+  if (!Studio.duracao) return 0;
+  return Math.max(1, Math.ceil(Studio.duracao / Math.max(0.05, inicioDoCompasso(1))));
+}
+
+/** Grade de tempos derivada de BPM + compasso (para música sem batidas). */
+function gerarBatidasSinteticas(){
+  if (Studio.batidas.length) return;
+  const passo = 60 / Math.max(20, Studio.bpm || 120);
+  const total = Studio.duracao || 0;
+  const out = [];
+  for (let t = 0; t <= total + 1e-6; t += passo) out.push(+t.toFixed(4));
+  Studio.batidas = out;
+  Studio.batidasSinteticas = true;
+}
+
+function calcEscala(){
+  const corpo = $("studioCorpo");
+  // largura disponível = largura do corpo menos o painel fixo
+  const larg = Math.max(240, (corpo ? corpo.clientWidth : 900) - painelLargura());
+  const dur = Studio.duracao || 1;
+  Studio.pxPorSeg = Math.max(2, (larg / dur) * Studio.zoom);
+  const alvo = $("tempoRolagem");
+  if (alvo) alvo.style.width = Math.max(larg, dur * Studio.pxPorSeg) + "px";
+  const faixas = $("gradeFaixas");
+  if (faixas) faixas.style.width = Math.max(larg, dur * Studio.pxPorSeg) + "px";
+}
+
+function painelLargura(){
+  const p = $("studioPainel");
+  return p ? p.getBoundingClientRect().width : 186;
+}
+
+// ---------------------------------------------------------------- montagem --
 function studioMontar(d){
   const est = d.estudio || {};
   Studio.dados = d;
-  Studio.batidas = est.batidas || [];
-  Studio.compasso = est.compasso || d.compasso || 4;
-  Studio.acordes = (est.acordes && est.acordes.length ? est.acordes : (d.acordes || []));
-  Studio.secoes = est.secoes || (d.secoes || []).map(s => ({
-    start: s.inicio, end: s.fim, rotulo: s.rotulo, nome: s.rotulo,
+  Studio.batidas = (est.batidas || []).slice();
+  Studio.batidasSinteticas = false;
+  Studio.compasso = Number(est.compasso || d.compasso || 4) || 4;
+  // 8 quando o projeto diz 8 (6/8, 12/8); 4 no resto. `est.denominador` vem
+  // do projeto.json; sem ele, 6 e 12 são lidos como colcheias.
+  const den = Number(est.denominador || d.denominador || 0);
+  Studio.denominador = den === 8 || (!den && (Studio.compasso === 6 || Studio.compasso === 12)) ? 8 : 4;
+  const acordes = (est.acordes && est.acordes.length) ? est.acordes : (d.acordes || []);
+  // cópia: editar a cifra não pode alterar o payload original
+  Studio.acordes = acordes.map(a => Object.assign({}, a));
+  Studio.secoes = (est.secoes || d.secoes || []).map(s => ({
+    start: Number(s.start != null ? s.start : s.inicio) || 0,
+    end: Number(s.end != null ? s.end : s.fim) || 0,
+    rotulo: s.rotulo || "",
+    nome: s.nome || s.rotulo || "Seção",
   }));
-  Studio.duracao = est.duracao || 0;
+  Studio.bpm = Number(est.bpm || d.bpm || 0) || 120;
+  // "—" é ausência de tom detectado, não um tom chamado "—": sem isso a
+  // transposição partiria de um índice inexistente e não faria nada.
+  const tomCru = String(est.tonalidade || d.tonalidade || "").trim();
+  Studio.tom = indiceNota(tomCru) >= 0 ? tomCru : "";
+  Studio.tomProjeto = Studio.tom;
+  Studio.tomExibido = Studio.tom;
+  Studio.transposicao = 0;
+  Studio.duracao = Number(est.duracao || d.duracao || d.segundos || 0);
 
-  const audio = Object.entries(d.arquivos || {}).filter(([k, f]) => f.audio && k !== "ensaio_lr");
-  if (!audio.length && !Studio.batidas.length){
+  const audio = Object.entries(d.arquivos || {}).filter(([chave, f]) =>
+    f.audio && tipoDoStem(chave) !== "ensaio_lr"
+    // `_MIX.wav` é a exportação do próprio editor: toca-la junto com os stems
+    // somava a música duas vezes e desalinhava por estar em outro formato
+    // (o arquivo exportado se chama "<projeto>_MIX.wav"; o stem do mix é
+    // "<projeto>_00_mix.wav" — o padrão "_NN_" separa os dois)
+    && !ehMixExportado(f.nome));
+  const temConteudo = audio.length || (d.clique || d.guia);
+  if (!temConteudo && !Studio.batidas.length){
     $("studio").style.display = "none";
-    return;                       // nada de timeline vazia: esconde
+    return;
   }
-  $("studio").style.display = "block";
+  $("studio").style.display = "flex";
+  $("studio").classList.remove("sem-min");
 
-  $("studioNome").textContent = d.nome_pasta || d.titulo || "Música";
-  $("studioTom").textContent = "♫ " + (est.tonalidade || d.tonalidade || "—");
-  $("studioBpm").textContent = (Math.round(est.bpm || d.bpm || 0) || "—") + " BPM";
-  $("trTom").textContent = "♫ " + (est.tonalidade || d.tonalidade || "—");
-  $("trBpm").textContent = "♩ " + (Math.round(est.bpm || d.bpm || 0) || "—") + " BPM";
-  $("trContagem").textContent = "123 Sem Pré-contagem";
+  $("studioNome").textContent = d.titulo || d.nome_pasta || "Música";
+  $("studioIcone").innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">' +
+    '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>' +
+    '<path d="M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>';
 
   studioLimparFaixas();
+  ligarContextoAudio();
 
-  // Web Audio: um grafo por faixa para medir nível. Se o navegador não
-  // deixar, o player continua e o medidor fica em 0 — degrada, não quebra.
-  try {
-    if (!Studio.ctx) Studio.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (Studio.ctx.state === "suspended") Studio.ctx.resume();
-  } catch (_) { Studio.ctx = null; }
-
-  // ordena como a DAW do CueWee: mix primeiro, depois o resto na ordem fixa
+  // ---- faixas de áudio (uma por stem) ----------------------------------
   const ordenado = audio.slice().sort((a, b) => {
-    const ia = ORDEM_FAIXA.indexOf(a[0]), ib = ORDEM_FAIXA.indexOf(b[0]);
-    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    const ia = ORDEM_FAIXA.indexOf(tipoDoStem(a[0]));
+    const ib = ORDEM_FAIXA.indexOf(tipoDoStem(b[0]));
+    return (ia < 0 ? 90 : Math.min(ia, 89)) - (ib < 0 ? 90 : Math.min(ib, 89));
   });
-
-  const colStems = $("colStems");
-  colStems.innerHTML = "";
+  const temOutrosStems = ordenado.some(([s]) => tipoDoStem(s) !== "mix");
   ordenado.forEach(([stem, f], i) => {
-    const cor = corDe(stem, i);
-    const bloco = document.createElement("div");
-    bloco.className = "stem-bloco";
-    bloco.dataset.stem = stem;
-    bloco.innerHTML = `
-      <div class="stem-topo">
-        <div class="nome"><i class="ponto" style="background:${cor}"></i><span>${escapeHtml(LABEL[stem] || stem)}</span></div>
-        <button class="bt btM" title="Mute">M</button>
-        <button class="bt btS" title="Solo">S</button>
-        <input class="vol" type="range" min="0" max="100" value="100" title="Volume desta faixa">
-      </div>
-      <div class="stem-linha"><canvas height="46"></canvas></div>`;
-    colStems.appendChild(bloco);
-
-    const audioEl = new Audio();
-    audioEl.src = f.url;
-    audioEl.preload = "auto";
-    audioEl.crossOrigin = "anonymous";
-    audioEl.volume = 1;
-
-    const mudoInicial = stem === "mix" && ordenado.length > 1;
-    const faixa = {
-      stem, el: audioEl, mudo: mudoInicial, solo: false, volume: 1, cor,
-      linha: bloco.querySelector(".stem-linha"),
-      canvas: bloco.querySelector("canvas"),
-      analyser: null, buf: null,
-    };
-    if (Studio.ctx){
-      try {
-        const src = Studio.ctx.createMediaElementSource(audioEl);
-        const an = Studio.ctx.createAnalyser();
-        an.fftSize = 256;
-        src.connect(an); an.connect(Studio.ctx.destination);
-        faixa.analyser = an;
-      } catch (_) { /* sem medidor nesta faixa */ }
-    }
-
-    const btM = bloco.querySelector(".btM");
-    const btS = bloco.querySelector(".btS");
-    const vol = bloco.querySelector(".vol");
-    if (mudoInicial) btM.classList.add("on-m");
-    btM.onclick = () => {
-      faixa.mudo = !faixa.mudo;
-      btM.classList.toggle("on-m", faixa.mudo);
-      studioAplicarMix();
-    };
-    btS.onclick = () => {
-      faixa.solo = !faixa.solo;
-      btS.classList.toggle("on-s", faixa.solo);
-      studioAplicarMix();
-    };
-    vol.oninput = () => { faixa.volume = vol.value / 100; studioAplicarMix(); };
-
-    audioEl.addEventListener("loadedmetadata", () => {
-      if (!Studio.duracao) Studio.duracao = audioEl.duration;
-      studioDesenhar();
-      studioAtualizarTransporte();
+    const tipo = tipoDoStem(stem);
+    const faixaCriada = studioCriarFaixa({
+      // id = TIPO ("mix", "vocals"), não o nome do arquivo: o resto do código
+      // procura a faixa por id (o relógio procura "mix") e com
+      // "GetWorship_00_mix" a procura falhava calada.
+      id: tipo,
+      nome: rotuloDaFaixa(stem),
+      url: f.url,
+      arquivo: f.nome,
+      cor: CORES[tipo] || PALETA[i % PALETA.length],
+      tipo: "stem",
     });
-    Studio.faixas.push(faixa);
+    if (faixaCriada && tipo === "mix" && temOutrosStems) {
+      faixaCriada.mudo = true;
+    }
   });
 
-  studioAplicarMix();
-
-  // faixas de ensaio (clique e guia) como trilhas próprias, como no CueWee
-  studioMontarEnsaio(d);
+  // ---- clique e guia (arquivos reais, quando existem) ------------------
+  if (d.clique) studioCriarFaixa({id:"clique", nome:"Click", url:d.clique,
+    arquivo:"clique.wav", cor:CORES.clique, tipo:"ensaio"});
+  if (d.guia) studioCriarFaixa({id:"guia", nome:"Guia", url:d.guia,
+    arquivo:"guia.wav", cor:CORES.guia, tipo:"ensaio"});
 
   studioAtualizarLinksExportar(d);
-  studioCalcularEscala();
+  Studio.finalizado = false;
+  Studio.tempo = 0;
+  Studio.loop = false;
+  Studio.selecao = null;
+  Studio.zoomOnda = Studio.zoomOnda || 1;
+  if ($("selecaoTempo")) $("selecaoTempo").hidden = true;
+  aplicarMix();
+  studioSincronizarControles();
+  studioSincronizarAlturas();
+  gerarBatidasSinteticas();
+  calcEscala();
+  studioDesenharFaixas();
+  studioDesenharRegua();
+  studioDesenharCifra();
+  studioDesenharTrilhas();
+  studioDesenharLegenda();
+  studioPosicionarCabeca();
   studioAtualizarTransporte();
-  studioDesenhar();
+  studioCarregarEdicoes(d);
 }
 
-// O menu "Exportar" só mostra o que existe: música sem L/R (rodada antiga ou
-// --no-lr) não pode oferecer um link que dá 404.
-function studioAtualizarLinksExportar(d){
-  const pares = [
-    ["expLR", d.lr, "ENSAIO_LR.wav"],
-    ["expClique", d.clique, "clique.wav"],
-    ["expGuia", d.guia, "guia.wav"],
+function ligarContextoAudio(){
+  try{
+    if (!Studio.ctx){
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      if (Ctor) Studio.ctx = new Ctor();
+    }
+    if (Studio.ctx && Studio.ctx.state === "suspended") Studio.ctx.resume();
+    // o master existe antes das faixas: cada uma se conecta nele ao nascer
+    if (Studio.ctx && !Studio.master){
+      Studio.master = Studio.ctx.createGain();
+      Studio.master.gain.value = Studio.masterVolume;
+      Studio.master.connect(Studio.ctx.destination);
+    }
+  }catch(_){ Studio.ctx = null; }
+}
+
+function painelFaixas(){ return $("painelFaixas"); }
+
+function studioCriarFaixa(cfg){
+  const painel = painelFaixas();
+  if (!painel || !cfg.url) return null;
+
+  // ---- painel esquerdo -------------------------------------------------
+  const linha = document.createElement("div");
+  linha.className = "faixa";
+  linha.dataset.id = cfg.id;
+  linha.style.setProperty("--cor-faixa", cfg.cor);
+  linha.innerHTML = `
+    <div class="faixa-topo">
+      <i class="faixa-cor"></i>
+      <span class="faixa-nome" title="${escapeHtml(cfg.arquivo || cfg.nome)}">${escapeHtml(cfg.nome)}</span>
+      <div class="faixa-ms">
+        <button type="button" class="btM" title="Mute (calar esta faixa)" aria-label="Mute">M</button>
+        <button type="button" class="btS" title="Solo (ouvir só as faixas em solo)" aria-label="Solo">S</button>
+        <button type="button" class="btOlho" title="Ocultar/mostrar esta faixa na timeline" aria-label="Ocultar faixa">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="2.6"/></svg>
+        </button>
+        <button type="button" class="faixa-menu" title="Mais opções" aria-label="Mais opções">⋯</button>
+      </div>
+    </div>
+    <div class="faixa-controles">
+      <span class="ctrl-rot" title="Volume da faixa">VOL</span>
+      <input class="faixa-vol" type="range" min="0" max="100" value="100"
+             title="Volume desta faixa" aria-label="Volume de ${escapeHtml(cfg.nome)}">
+      <span class="ctrl-val vol-val">100</span>
+    </div>
+    <div class="faixa-controles">
+      <span class="ctrl-rot" title="Pan: esquerda ← centro → direita">PAN</span>
+      <input class="faixa-pan" type="range" min="-100" max="100" value="0"
+             data-centro="1" title="Pan (duplo clique centraliza)"
+             aria-label="Pan de ${escapeHtml(cfg.nome)}">
+      <span class="ctrl-val pan-val">C</span>
+    </div>
+    <div class="faixa-medidor" title="Nível de saída"><i></i></div>`;
+  painel.appendChild(linha);
+
+  // ---- trilha na timeline ---------------------------------------------
+  const moldura = $("gradeFaixas");
+  const trilha = document.createElement("div");
+  trilha.className = "trilha";
+  trilha.dataset.id = cfg.id;
+  trilha.id = "trilha-" + cfg.id;
+  trilha.style.height = "var(--h-linha)";
+  trilha.innerHTML = `<canvas></canvas><span class="rotulo-trilha"></span>`;
+  if (cfg.tipo === "ensaio"){
+    trilha.querySelector(".rotulo-trilha").textContent = "";
+  }
+  moldura.appendChild(trilha);
+
+  // ---- áudio -----------------------------------------------------------
+  const el = new Audio();
+  el.src = cfg.url;
+  el.preload = "auto";
+  el.crossOrigin = "anonymous";
+  el.volume = 1;
+
+  const faixa = {
+    id: cfg.id, nome: cfg.nome, url: cfg.url, arquivo: cfg.arquivo || "",
+    tipo: cfg.tipo || "stem", cor: cfg.cor,
+    el, mudo:false, solo:false, volume:1, pan:0,
+    linha, trilha, canvas: trilha.querySelector("canvas"),
+    medidor: linha.querySelector(".faixa-medidor i"),
+    ganho: null, analyser: null, picos: null, buf: null, carregando:false,
+  };
+
+  // gain + analyser por faixa: o volume tem de mudar o áudio de verdade,
+  // e o medidor tem de ler o sinal que está tocando.
+  if (Studio.ctx){
+    try{
+      const src = Studio.ctx.createMediaElementSource(el);
+      const ganho = Studio.ctx.createGain();
+      const pan = Studio.ctx.createStereoPanner ? Studio.ctx.createStereoPanner() : null;
+      const an = Studio.ctx.createAnalyser();
+      an.fftSize = 128;
+      if (pan){ src.connect(ganho); ganho.connect(pan); pan.connect(an); }
+      else { src.connect(ganho); ganho.connect(an); }
+      // a saída de cada faixa entra no MASTER (mixagem geral), não direto na
+      // placa de som
+      an.connect(Studio.master || Studio.ctx.destination);
+      faixa.ganho = ganho; faixa.panNode = pan; faixa.analyser = an;
+    }catch(_){ /* sem grafo: cai no el.volume, que também funciona */ }
+  }
+
+  // ---- ligações --------------------------------------------------------
+  const btM = linha.querySelector(".btM");
+  const btS = linha.querySelector(".btS");
+  const vol = linha.querySelector(".faixa-vol");
+  const panEl = linha.querySelector(".faixa-pan");
+
+  btM.onclick = (ev) => { ev.stopPropagation(); studioMute(faixa); };
+  btS.onclick = (ev) => { ev.stopPropagation(); studioSolo(faixa); };
+  vol.oninput = () => {
+    faixa.volume = vol.value / 100;
+    rotuloVolume(faixa);
+    aplicarMix(); marcarSalvo();
+  };
+  panEl.oninput = () => {
+    faixa.pan = panEl.value / 100;
+    panEl.dataset.centro = faixa.pan === 0 ? "1" : "0";
+    rotuloPan(faixa);
+    aplicarMix(); marcarSalvo();
+  };
+  panEl.ondblclick = () => { panEl.value = 0; panEl.oninput(); };
+  linha.querySelector(".btOlho").onclick = (ev) => {
+    ev.stopPropagation(); studioOcultarFaixa(faixa);
+  };
+  linha.querySelector(".faixa-menu").onclick = (ev) => {
+    ev.stopPropagation();
+    studioMenuFaixa(faixa);
+  };
+  linha.querySelector(".faixa-nome").onclick = () => studioSelecionar(faixa);
+  linha.onclick = (ev) => {
+    if (ev.target.tagName === "INPUT" || ev.target.tagName === "BUTTON") return;
+    studioSelecionar(faixa);
+  };
+  // clicar na onda = posicionar o cursor ali (como numa DAW)
+  trilha.onclick = (ev) => {
+    studioSelecionar(faixa);
+    const r = trilha.getBoundingClientRect();
+    studioBuscar(segDe(ev.clientX - r.left + ($("studioTempo").scrollLeft || 0)));
+  };
+
+  el.addEventListener("loadedmetadata", () => {
+    // A duração do projeto é a do arquivo MAIS LONGO. Quando o metadado chega,
+    // a duração de verdade substitui o valor herdado do projeto.json — era por
+    // isso que o transporte mostrava "0:24 / 0:24" numa música de 6:38: o
+    // valor antigo (do arquivo de referência) ficava para sempre, porque só
+    // crescia, nunca era corrigido.
+    if (isFinite(el.duration) && el.duration > 0){
+      Studio.duracoes = Studio.duracoes || {};
+      Studio.duracoes[cfg.id] = el.duration;
+      const maior = Math.max(...Object.values(Studio.duracoes));
+      if (Math.abs(maior - (Studio.duracao || 0)) > 0.05){
+        Studio.duracao = maior;
+        gerarBatidasSinteticas();
+        calcEscala();
+        studioDesenhar();
+      }
+    }
+    studioAtualizarTransporte();
+    studioSincronizarAlturas();
+  });
+  el.addEventListener("error", () => {
+    trilha.classList.add("erro");
+    trilha.querySelector(".rotulo-trilha").textContent = "falha ao carregar o áudio";
+  });
+  el.addEventListener("ended", () => {
+    if (faixa !== Studio.faixas[0]) return;
+    if (Studio.loop) return;              // o loop cuida do reinício
+    studioPausar();
+  });
+
+  (cfg.tipo === "ensaio" ? Studio.ensaio : Studio.faixas).push(faixa);
+  return faixa;
+}
+
+function studioLimparFaixas(){
+  [].concat(Studio.faixas, Studio.ensaio).forEach(f => {
+    try{ f.el.pause(); f.el.src = ""; }catch(_){}
+    // desconecta o grafo da música anterior: sem isso, abrir outra música
+    // deixava nós órfãos ligados ao master (e o medidor de uma faixa antiga
+    // continuava sendo atualizado)
+    try{ f.ganho && f.ganho.disconnect(); }catch(_){}
+    try{ f.panNode && f.panNode.disconnect(); }catch(_){}
+    try{ f.analyser && f.analyser.disconnect(); }catch(_){}
+  });
+  Studio.ocultas = {};
+  Studio.selecionada = null;
+  Studio.duracoes = {};
+  Studio.faixas = [];
+  Studio.ensaio = [];
+  Studio.tempo = 0;
+  Studio.tocando = false;
+  if (Studio.timer){ clearInterval(Studio.timer); Studio.timer = null; }
+  const painel = painelFaixas();
+  if (painel) painel.innerHTML = "";
+  const grade = $("gradeFaixas");
+  if (grade) grade.innerHTML = "";
+  Studio.mediaAtual = null;
+}
+
+// -------------------------------------------------------------- mixagem -----
+function todasAsFaixas(){ return Studio.faixas.concat(Studio.ensaio); }
+
+function audivel(f, temSolo){
+  if (f.tipo === "ensaio" && !Studio.metronomo) return false;
+  // solo é MÚLTIPLO: com duas faixas em solo, as duas continuam audíveis
+  if (temSolo) return !!f.solo && !f.mudo;
+  return !f.mudo;
+}
+
+/** Aplica mute/solo/volume/pan no áudio real. */
+function aplicarMix(){
+  const lista = todasAsFaixas();
+  const temSolo = lista.some(f => f.solo);
+
+  // Volume master: um GainNode só, no fim da cadeia. Antes o slider do topo
+  // escrevia em TODOS os `el.volume` e por isso apagava a mixagem que o
+  // usuário tinha feito faixa por faixa — era um segundo volume individual.
+  if (Studio.ctx && !Studio.master && lista.length){
+    try{
+      const m = Studio.ctx.createGain();
+      m.gain.value = Studio.masterVolume;
+      m.connect(Studio.ctx.destination);
+      Studio.master = m;
+    }catch(_){ Studio.master = null; }
+  }
+  if (Studio.master) Studio.master.gain.value = Studio.masterVolume;
+
+  for (const f of lista){
+    const ok = audivel(f, temSolo);
+    // Mute é ROTEAMENTO, não `el.muted`: no Web Audio, `muted` só vale quando
+    // o elemento toca direto na saída — com o grafo (ganho/pan/analisador) o
+    // som continuava saindo. Desligar o ganho cala de fato e mantém o
+    // analisador vivo para o medidor.
+    const alvo = ok ? f.volume : 0;
+    if (f.ganho) f.ganho.gain.value = alvo;
+    else { f.el.muted = !ok; f.el.volume = Math.min(1, alvo); }
+    if (f.panNode) f.panNode.pan.value = f.pan;
+    f.linha.classList.toggle("mudo", !ok);
+    f.linha.classList.toggle("solo", !!f.solo);
+    f.trilha.classList.toggle("mudo", !ok);
+    f.trilha.classList.toggle("solo", !!f.solo);
+    const btM = f.linha.querySelector(".btM");
+    const btS = f.linha.querySelector(".btS");
+    if (btM) btM.classList.toggle("on-m", f.mudo);
+    if (btS) btS.classList.toggle("on-s", f.solo);
+  }
+}
+
+/** "100" ao lado do slider de volume: o número é o que o áudio está usando. */
+function rotuloVolume(f){
+  const el = f.linha.querySelector(".vol-val");
+  if (el) el.textContent = String(Math.round((f.volume || 0) * 100));
+}
+/** Rótulo do pan em linguagem musical: E10, C, D35. */
+function rotuloPan(f){
+  const el = f.linha.querySelector(".pan-val");
+  if (el){
+    const v = Math.round((f.pan || 0) * 100);
+    el.textContent = v === 0 ? "C" : (v < 0 ? "E" + Math.abs(v) : "D" + v);
+  }
+  const p = f.linha.querySelector(".faixa-pan");
+  if (p) p.title = `Pan ${Math.round((f.pan || 0) * 100)}` +
+    (f.pan === 0 ? " (centro — duplo clique centraliza)" : "");
+}
+
+/** Oculta a faixa da timeline sem desmontar o áudio (o som continua igual). */
+function studioOcultarFaixa(f){
+  const oculta = !Studio.ocultas[f.id];
+  Studio.ocultas[f.id] = oculta;
+  f.trilha.style.display = oculta ? "none" : "";
+  f.linha.classList.toggle("oculta", oculta);
+  const olho = f.linha.querySelector(".btOlho");
+  if (olho) olho.classList.toggle("off", oculta);
+  studioSincronizarAlturas();
+}
+
+function studioMute(f){
+  f.mudo = !f.mudo;
+  aplicarMix();
+  marcarSalvo();
+}
+
+function studioSolo(f){
+  f.solo = !f.solo;
+  aplicarMix();
+  marcarSalvo();
+}
+
+/** Altura da linha: um número só para o painel e para a trilha.
+ *
+ *  Antes cada lado usava `var(--h-linha)` por conta própria e, quando a altura
+ *  mudava (tela pequena, redimensionamento), os dois lados divergiam — era o
+ *  desalinhamento entre o nome da faixa e a onda.
+ */
+function studioSincronizarAlturas(){
+  const base = Studio.alturaLinha || parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--h-linha")) || 62;
+  for (const f of todasAsFaixas()){
+    const h = f.id === "clique" || f.id === "guia"
+      ? Math.max(26, Math.round(base * 0.58)) : Math.round(base);
+    f.linha.style.height = h + "px";
+    f.linha.style.minHeight = h + "px";
+    f.trilha.style.height = h + "px";
+    f.trilha.style.minHeight = h + "px";
+  }
+  studioDesenharFaixas();
+  studioDesenharTrilhas();
+}
+
+/** Redimensiona as linhas (arrastar no canto do painel de faixas). */
+function studioDefinirAltura(px){
+  Studio.alturaLinha = Math.max(40, Math.min(140, Math.round(px)));
+  studioSincronizarAlturas();
+}
+
+function studioSelecionar(f){
+  Studio.selecionada = f;
+  document.querySelectorAll("#painelFaixas .faixa").forEach(el =>
+    el.classList.toggle("selecionada", el.dataset.id === f.id));
+  document.querySelectorAll("#gradeFaixas .trilha").forEach(el =>
+    el.classList.toggle("selecionada", el.dataset.id === f.id));
+}
+
+function studioMenuFaixa(f){
+  // menu mínimo e honesto: só o que existe de verdade
+  const acoes = [
+    ["Silenciar / reativar (M)", () => studioMute(f)],
+    ["Ouvir só esta (S)", () => studioSolo(f)],
+    ["Volume 100%", () => { f.volume = 1; const v = f.linha.querySelector(".faixa-vol"); if (v) v.value = 100; aplicarMix(); }],
+    ["Volume 60%", () => { f.volume = 0.6; const v = f.linha.querySelector(".faixa-vol"); if (v) v.value = 60; aplicarMix(); }],
+    ["Centralizar pan", () => { f.pan = 0; const p = f.linha.querySelector(".faixa-pan"); if (p){ p.value = 0; p.dataset.centro = "1"; } aplicarMix(); }],
   ];
+  const antigo = document.getElementById("menuFaixaPop");
+  if (antigo) antigo.remove();
+  const pop = document.createElement("div");
+  pop.id = "menuFaixaPop";
+  pop.className = "menu-exportar";
+  pop.style.position = "fixed";
+  pop.style.minWidth = "210px";
+  const r = f.linha.querySelector(".faixa-menu").getBoundingClientRect();
+  pop.style.left = Math.max(8, r.left - 150) + "px";
+  pop.style.top = (r.bottom + 4) + "px";
+  pop.innerHTML = `<div style="padding:4px 8px 6px;font-size:11px;color:var(--muted)">
+      ${escapeHtml(f.nome)} · ${escapeHtml(f.arquivo || "")}</div>`;
+  acoes.forEach(([texto, fn]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = texto;
+    b.onclick = () => { pop.remove(); fn(); };
+    pop.appendChild(b);
+  });
+  document.body.appendChild(pop);
+  setTimeout(() => document.addEventListener("click", function fechar(ev){
+    if (!pop.contains(ev.target)){ pop.remove(); document.removeEventListener("click", fechar); }
+  }), 0);
+}
+
+// -------------------------------------------------------------- desenho -----
+function studioDesenhar(){
+  if (!Studio.duracao && !Studio.batidas.length) return;
+  studioDesenharFaixas();
+  studioDesenharRegua();
+  studioDesenharCifra();
+  studioDesenharTrilhas();
+  studioDesenharSelecao();
+  studioPosicionarCabeca();
+}
+
+/** Redimensiona as telas (canvas) das faixas e desenha as ondas reais. */
+function studioDesenharFaixas(){
+  const larg = Math.max(1, Math.round((Studio.duracao || 1) * Studio.pxPorSeg));
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  for (const f of todasAsFaixas()){
+    const cv = f.canvas;
+    if (!cv) continue;
+    const alt = Math.max(20, Math.round(f.trilha.clientHeight || 60));
+    cv.style.width = larg + "px";
+    cv.style.height = alt + "px";
+    if (cv.width !== Math.round(larg * dpr) || cv.height !== Math.round(alt * dpr)){
+      cv.width = Math.round(larg * dpr);
+      cv.height = Math.round(alt * dpr);
+    }
+    const g = ctx2d(cv);
+    if (!g) continue;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, larg, alt);
+    if (f.picos){
+      desenharPicos(g, f.picos, larg, alt, f.cor);
+    } else if (!f.carregando){
+      f.carregando = true;
+      // 2 amostras por pixel é o suficiente para a onda "ler" como onda
+      carregarPicos(f, Math.min(6000, Math.max(300, Math.round(larg)))).then(p => {
+        f.carregando = false;
+        if (!p){ f.semOnda = true; return; }
+        f.picos = p;
+        studioDesenharFaixas();
+      });
+    } else if (f.semOnda){
+      // sem onda: avisa em vez de desenhar uma senoide inventada
+      g.fillStyle = "#39434f";
+      g.font = "10px ui-sans-serif,system-ui,sans-serif";
+      g.fillText("forma de onda indisponível", 8, alt / 2 + 3);
+    }
+  }
+}
+
+async function carregarPicos(faixa, amostras){
+  try{
+    const resp = await fetch(faixa.url);
+    if (!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    const ctx = Studio.ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const audio = await ctx.decodeAudioData(buf);
+    const canal = audio.getChannelData(0);
+    const passo = Math.max(1, canal.length / amostras);
+    const picos = new Float32Array(amostras);
+    for (let i = 0; i < amostras; i++){
+      const ini = Math.floor(i * passo), fim = Math.min(canal.length, Math.floor((i + 1) * passo));
+      let pico = 0;
+      for (let j = ini; j < fim; j += 2){
+        const v = Math.abs(canal[j]);
+        if (v > pico) pico = v;
+      }
+      picos[i] = pico;
+    }
+    return picos;
+  }catch(_){ return null; }
+}
+
+const ALTURA_FAIXA = 62;
+
+function ctx2d(cv){
+  try { return cv && cv.getContext ? cv.getContext("2d") : null; } catch (_) { return null; }
+}
+
+/** Desenha a onda com contraste de verdade.
+ *
+ *  Antes era a cor da faixa com 55% de transparência: no fundo quase preto,
+ *  vocais (vermelho escuro) sumiam. Agora são três camadas — um traço claro
+ *  por cima do preenchimento e um halo escuro atrás —, o que mantém a cor de
+ *  cada faixa e garante que a onda apareça em qualquer monitor. O `zoom` é
+ *  aplicado nos picos (independente do zoom da régua).
+ */
+function desenharPicos(g, picos, larg, alt, cor){
+  const meio = alt / 2;
+  const amp = Math.max(4, meio - 4);
+  const zoom = Studio.zoomOnda || 1;
+  // uma barra por pixel de tela; com zoom, o mesmo trecho ocupa mais largura
+  const passo = (picos.length / Math.max(1, larg)) / zoom;
+  const deslocamento = (picos.length - passo * larg) / 2;   // zoom centrado
+  const barras = [];
+  for (let x = 0; x < larg; x++){
+    let i = Math.floor(deslocamento + x * passo);
+    if (i < 0 || i >= picos.length){ barras.push(0); continue; }
+    barras.push(picos[i]);
+  }
+  // 1) halo escuro: separa a onda do fundo e das linhas de grade
+  g.globalAlpha = 0.5;
+  g.fillStyle = "#000";
+  for (let x = 0; x < larg; x++){
+    const h = Math.max(2, barras[x] * amp * 2.1);
+    g.fillRect(x - 0.5, meio - h / 2 - 0.5, 2, h + 1);
+  }
+  // 2) preenchimento na cor da faixa
+  g.globalAlpha = 0.95;
+  g.fillStyle = cor;
+  for (let x = 0; x < larg; x++){
+    const h = Math.max(1.5, barras[x] * amp * 2.1);
+    g.fillRect(x, meio - h / 2, 1, h);
+  }
+  // 3) contorno claro no topo: dá relevo e resolve cor escura em fundo escuro
+  g.globalAlpha = 0.75;
+  g.fillStyle = "rgba(255,255,255,.55)";
+  for (let x = 0; x < larg; x++){
+    const h = Math.max(1.5, barras[x] * amp * 2.1);
+    g.fillRect(x, meio - h / 2, 1, Math.min(2, h));
+  }
+  // linha de base
+  g.globalAlpha = 0.22;
+  g.fillStyle = "#fff";
+  g.fillRect(0, meio - 0.5, larg, 1);
+  g.globalAlpha = 1;
+}
+
+function studioDesenharRegua(){
+  const regua = $("regua");
+  if (!regua) return;
+  const dur = Studio.duracao || 0;
+  const c = Math.max(1, Studio.compasso);
+  const partes = [];
+  partes.push(`<span class="formula-tag">${c}/${denominadorCompasso()}</span>`);
+
+  // passo entre números: todos quando cabe, senão 4 em 4, 8 em 8...
+  const largCompasso = xDe(inicioDoCompasso(1)) - xDe(inicioDoCompasso(0));
+  let passoNum = 1;
+  if (largCompasso < 30) passoNum = 4;
+  if (largCompasso < 12) passoNum = 8;
+  if (largCompasso < 6) passoNum = 16;
+
+  const total = Math.max(1, Math.ceil(dur / Math.max(0.05, inicioDoCompasso(1))));
+  for (let n = 0; n <= total; n++){
+    const t = inicioDoCompasso(n);
+    if (t > dur + 0.001) break;
+    const x = xDe(t);
+    const forte = n % 4 === 0;
+    partes.push(`<div class="marca-compasso" style="left:${x.toFixed(1)}px"></div>`);
+    if (n % passoNum === 0 || n === 0){
+      partes.push(`<div class="comp-num${forte ? " forte" : ""}" style="left:${x.toFixed(1)}px">${n + 1}</div>`);
+    }
+    // batidas internas do compasso (a subdivisão da fórmula). Em 6/8 e 12/8
+    // são colcheias: c subdivisões dentro de c/2 semínimas.
+    const passoBase = inicioDoCompasso(1) - t;
+    const subs = subdivisoesPorCompasso();
+    for (let k = 1; k < subs; k++){
+      const tb = t + k * (passoBase / subs);
+      if (tb > dur) break;
+      // em compassos compostos o tempo forte do meio (4 de 6, 7 de 12)
+      // também é acentuado: é o que o músico conta
+      const meio = subs % 2 === 0 ? subs / 2 : -1;
+      const cls = k === meio ? "batida media" : "batida";
+      partes.push(`<div class="${cls}" style="left:${xDe(tb).toFixed(1)}px"></div>`);
+    }
+  }
+  regua.innerHTML = partes.join("");
+  // a régua é reconstruída inteira: as marcas de seção entram depois
+  studioDesenharSecoes();
+  // clicar posiciona; ARRASTAR seleciona uma região (que é o que o loop repete)
+  regua.onclick = (ev) => {
+    if (regua.dataset.arrastou === "1") return;   // veio de um arrasto
+    studioBuscar(segDe(ev.clientX - regua.getBoundingClientRect().left));
+  };
+  regua.onpointerdown = (ev) => {
+    if (ev.button !== 0) return;
+    const r = regua.getBoundingClientRect();
+    const inicio = segDe(ev.clientX - r.left);
+    regua.dataset.arrastou = "0";
+    const mover = (e2) => {
+      const agora = segDe(e2.clientX - r.left);
+      if (Math.abs(agora - inicio) < 0.15) return;
+      regua.dataset.arrastou = "1";
+      Studio.selecao = {inicio: Math.min(inicio, agora), fim: Math.max(inicio, agora)};
+      studioDesenharSelecao();
+    };
+    const soltar = () => {
+      window.removeEventListener("pointermove", mover);
+      window.removeEventListener("pointerup", soltar);
+      if (Studio.selecao){
+        const b = $("trLoop");
+        if (b) b.dataset.dica = `Repetir o trecho ${fmtSeg(Studio.selecao.inicio)}–${fmtSeg(Studio.selecao.fim)} (L)`;
+        if (Studio.loop){ Studio.loopA = Studio.selecao.inicio; Studio.loopB = Studio.selecao.fim; atualizarBotaoLoop(); }
+      }
+      setTimeout(() => { regua.dataset.arrastou = "0"; }, 0);
+    };
+    window.addEventListener("pointermove", mover);
+    window.addEventListener("pointerup", soltar);
+  };
+}
+
+/** Desenha a região selecionada sobre a régua e as faixas. */
+function studioDesenharSelecao(){
+  const alvo = $("selecaoTempo");
+  if (!alvo) return;
+  const s = Studio.selecao;
+  if (!s || s.fim - s.inicio < 0.05){ alvo.hidden = true; return; }
+  alvo.hidden = false;
+  alvo.style.left = xDe(s.inicio) + "px";
+  alvo.style.width = Math.max(2, xDe(s.fim) - xDe(s.inicio)) + "px";
+}
+
+function studioDesenharCifra(){
+  const linha = $("linhaCifra");
+  if (!linha) return;
+  const dur = Studio.duracao || 0;
+  const partes = [];
+  const lista = Studio.acordes;
+  if (!lista.length){
+    // sem acordes: mostra a grade vazia clicável. Nada de "?" permanente.
+    const total = Studio.duracao ? Math.ceil(dur / Math.max(0.05, inicioDoCompasso(1))) : 0;
+    for (let n = 0; n < total && n < 400; n++){
+      const t = inicioDoCompasso(n), t2 = inicioDoCompasso(n + 1);
+      partes.push(`<div class="cifra-cel fraca" data-cel="${n}" data-inicio="${t}"
+          style="left:${xDe(t).toFixed(1)}px;width:${Math.max(18, xDe(t2) - xDe(t)).toFixed(1)}px"
+          title="Compasso ${n + 1}: clique para digitar o acorde">—</div>`);
+    }
+  } else {
+    lista.forEach((a, i) => {
+      const x = xDe(a.inicio);
+      const larg = Math.max(26, xDe(a.fim || a.inicio) - x);
+      const conf = Number(a.confianca || 0);
+      // Confiança baixa é tratada como NÃO DEFINIDO: mostrar "F#" tirado de
+      // uma detecção de 8% seria inventar cifra. O usuário vê "—" e digita.
+      const indefinido = !a.acorde || a.acorde === "?" || conf < 0.2;
+      const nome = indefinido ? "" : rotuloAcorde(a);
+      const titulo = indefinido
+        ? `Compasso ${(a.compasso || 0)} · acorde não definido — clique para digitar`
+        : `Compasso ${a.compasso || i + 1} · ${nome}${conf < 1 ? " · confiança " + conf.toFixed(2) : ""}`
+            + ` · ${fmtSeg(a.inicio)}`;
+      partes.push(`<div class="cifra-cel${indefinido ? " fraca" : ""}" data-cel="${i}"
+          data-inicio="${a.inicio}"
+          style="left:${x.toFixed(1)}px;width:${larg.toFixed(1)}px"
+          title="${escapeHtml(titulo)}">${escapeHtml(nome || "—")}</div>`);
+    });
+  }
+  linha.innerHTML = partes.join("");
+  linha.querySelectorAll(".cifra-cel").forEach(cel => {
+    cel.onclick = (ev) => { ev.stopPropagation(); studioEditarAcorde(cel); };
+  });
+}
+
+function studioDesenharTrilhas(){
+  const dur = Studio.duracao || 0;
+  const larg = Math.max(1, Math.round(dur * Studio.pxPorSeg));
+  // clique: uma marca por batida, mais alta no 1º tempo do compasso
+  const trilhaClique = $("trilha-clique");
+  const cvC = trilhaClique ? trilhaClique.querySelector("canvas") : null;
+  if (cvC){
+    cvC.style.width = larg + "px";
+    cvC.width = larg;
+    cvC.height = Math.max(20, trilhaClique.clientHeight || 40);
+    const g = ctx2d(cvC);
+    if (g){
+      g.clearRect(0, 0, cvC.width, cvC.height);
+      g.fillStyle = "#3d4a5b";
+      const porComp = batidasPorCompasso();
+      Studio.batidas.forEach((b, i) => {
+        if (b > dur) return;
+        const x = xDe(b);
+        const forte = i % porComp === 0;
+        const h = forte ? cvC.height * 0.62 : cvC.height * 0.3;
+        g.fillRect(x, (cvC.height - h) / 2, forte ? 2 : 1, h);
+      });
+    }
+  }
+  studioDesenharSecoes();
+}
+
+/** Blocos de seção com nome, como na referência.
+ *
+ *  Antes só existiam na trilha da GUIA. Música sem arquivo de guia (ou com a
+ *  guia oculta) não mostrava seção nenhuma — o usuário marcava "Refrão" e a
+ *  marca desaparecia. Agora vão para a trilha da guia quando ela existe e,
+ *  sempre, para a RÉGUA (que nunca some).
+ */
+function studioDesenharSecoes(){
+  const desenhar = (alvo, classe) => {
+    if (!alvo) return;
+    alvo.querySelectorAll("." + classe).forEach(el => el.remove());
+    Studio.secoes.forEach((s) => {
+      const bloco = document.createElement("div");
+      bloco.className = classe;
+      const x = xDe(s.start);
+      const w = Math.max(14, xDe(s.end || s.start) - x);
+      bloco.style.left = x + "px";
+      bloco.style.width = w + "px";
+      bloco.textContent = (s.nome || s.rotulo || "Seção").toUpperCase();
+      bloco.title = `${s.nome || s.rotulo} · ${fmtSeg(s.start)}–${fmtSeg(s.end)}`
+        + " (clique para ir ao início da seção)";
+      bloco.onclick = (ev) => { ev.stopPropagation(); studioBuscar(s.start); };
+      alvo.appendChild(bloco);
+    });
+  };
+  desenhar($("trilha-guia"), "secao-bloco");
+  desenhar($("regua"), "secao-marca");
+}
+
+function studioDesenharLegenda(){
+  const alvo = $("legendaStudio");
+  if (!alvo) return;
+  // mostra o rótulo curto (Vocais, Bateria...), não o nome do arquivo:
+  // a legenda do rodapé é uma referência de cor, não um índice de arquivos
+  alvo.innerHTML = todasAsFaixas().map(f =>
+    `<span><i style="background:${f.cor}"></i>${escapeHtml(f.nome)}</span>`).join("");
+}
+
+/** O cursor: uma linha só, sobre régua+cifra+faixas, posicionada por tempo. */
+function studioPosicionarCabeca(){
+  const linha = $("cabecaVertical");
+  if (!linha) return;
+  const t = Studio.tempo;
+  linha.style.transform = `translateX(${xDe(t).toFixed(1)}px)`;
+  linha.style.display = (Studio.duracao && Studio.batidas.length) || Studio.duracao ? "block" : "none";
+
+  // cifra atual: o acorde cujo intervalo contém o tempo
+  const atual = Studio.acordes.findIndex(a => t >= a.inicio && t < a.fim);
+  const mapa = new Map();
+  if (atual >= 0) mapa.set(String(atual), true);
+  const cAtual = Studio.acordes.length ? -1 : compassoDe(t);
+  const cels = document.querySelectorAll("#linhaCifra .cifra-cel");
+  cels.forEach((el, i) => {
+    const iCel = Number(el.dataset.cel);
+    const on = atual >= 0 ? iCel === atual : (cAtual >= 0 && iCel === cAtual);
+    el.classList.toggle("atual", on);
+  });
+  // seção atual no painel
+  const info = $("painelInfo");
+  if (info){
+    const sec = Studio.secoes.find(s => t >= s.start && t < s.end);
+    info.textContent = sec ? (sec.nome || sec.rotulo || "") : "";
+  }
+}
+
+// ------------------------------------------------------- reprodução ---------
+/** Faixa de referência: o stem mais longo (mix, se existir). */
+/** Faixa que serve de relógio (a "fonte única de verdade" da posição).
+ *
+ *  Prefere o mix (é a soma, existe em toda música) e nunca escolhe uma faixa
+ *  em mute: com o mix silenciado, o relógio andava num <audio> que ninguém
+ *  ouvia e o playhead corria sem som — o usuário achava que o play tinha
+ *  morrido.
+ */
+function referencia(){
+  const candidatas = Studio.faixas.length ? Studio.faixas : Studio.ensaio;
+  if (!candidatas.length) return null;
+  const mix = candidatas.find(f => f.id === "mix");
+  if (mix && audivel(mix, todasAsFaixas().some(f => f.solo))) return mix;
+  const tocavel = candidatas.find(f => audivel(f, todasAsFaixas().some(f2 => f2.solo)));
+  return tocavel || mix || candidatas[0];
+}
+
+/** Medidor de nível por faixa.
+ *
+ *  A versão anterior lia 64 amostras de um instante e só rodava tocando: entre
+ *  um bumbo e outro o medidor caía para zero, e ao pausar ficava congelado no
+ *  último valor. Agora usa RMS de 256 amostras com ataque imediato e queda
+ *  suave (como um VU de verdade) e zera quando não há som.
+ */
+function atualizarMedidores(){
+  const buf = Studio._bufMedidor || (Studio._bufMedidor = new Uint8Array(256));
+  for (const f of todasAsFaixas()){
+    if (!f.medidor) continue;
+    let alvo = 0;
+    if (Studio.tocando && f.analyser && !f.mudo && audivel(f, Studio.faixas.concat(Studio.ensaio).some(x => x.solo))){
+      f.analyser.getByteTimeDomainData(buf);
+      let soma = 0;
+      for (let i = 0; i < buf.length; i++){
+        const v = (buf[i] - 128) / 128;
+        soma += v * v;
+      }
+      const rms = Math.sqrt(soma / buf.length);
+      // RMS de música fica baixo: escala perceptual (dB aproximado) para o
+      // medidor ter movimento visível em material real
+      alvo = Math.min(1, Math.max(0, (20 * Math.log10(rms + 1e-6) + 60) / 60));
+    }
+    const atual = f.nivel || 0;
+    // ataque rápido (sobe na hora), queda lenta (250 ms)
+    f.nivel = alvo > atual ? alvo : atual * 0.82 + alvo * 0.18;
+    f.medidor.style.width = Math.max(0, Math.min(100, f.nivel * 100)).toFixed(0) + "%";
+    f.medidor.parentElement.classList.toggle("quente", f.nivel > 0.85);
+  }
+}
+
+function studioTocar(){
+  const ref = referencia();
+  if (!ref) return;
+  ligarContextoAudio();
+  aplicarMix();
+  // Se a música já tinha terminado (ou o cursor está no fim), o Play
+  // recomeça do zero — antes ele "tocava" no fim e parava no mesmo instante,
+  // o que parecia um botão quebrado.
+  const dur = Studio.duracao || 0;
+  if (Studio.finalizado || (dur && Studio.tempo >= dur - 0.05)){
+    Studio.tempo = 0;
+    Studio.finalizado = false;
+  }
+  const base = Studio.tempo || 0;
+  const todos = todasAsFaixas();
+  // sincronismo inicial: todos partem do MESMO tempo, não do que cada um
+  // achou que era "o ponto atual"
+  todos.forEach(f => { try{ f.el.currentTime = base; }catch(_){} });
+  Studio.relogio = performance.now();
+  Studio.relogioTempo = base;
+  Promise.all(todos.map(f => f.el.play().catch(() => {}))).then(() => {
+    Studio.tocando = true;
+    studioAtualizarTransporte();
+    iniciarRelogio();
+  });
+}
+
+function studioPausar(){
+  todasAsFaixas().forEach(f => { try{ f.el.pause(); }catch(_){} });
+  Studio.tocando = false;
+  atualizarMedidores();   // zera os medidores ao parar
+  Studio.finalizado = false;
+  Studio.tempo = referencia() ? referencia().el.currentTime : Studio.tempo;
+  pararRelogio();
+  studioAtualizarTransporte();
+  studioPosicionarCabeca();
+}
+
+function studioTocarPausar(){
+  if (Studio.tocando) studioPausar();
+  else studioTocar();
+}
+
+function pararRelogio(){
+  if (Studio.timer){ clearInterval(Studio.timer); Studio.timer = null; }
+}
+
+/** Um relógio só: lê o tempo do áudio, realinha os outros e redesenha. */
+function iniciarRelogio(){
+  if (Studio.timer) return;
+  Studio.timer = setInterval(() => {
+    const ref = referencia();
+    if (!ref || !Studio.tocando) return;
+    Studio.tempo = ref.el.currentTime;
+
+    // realinhamento: stems com 80 ms de folga, clique/guia com 25 ms
+    for (const f of todasAsFaixas()){
+      if (f === ref) continue;
+      const folga = f.tipo === "ensaio" ? 0.025 : 0.08;
+      if (Math.abs(f.el.currentTime - Studio.tempo) > folga){
+        try{ f.el.currentTime = Studio.tempo; }catch(_){}
+      }
+    }
+    // loop: volta para A ao passar de B
+    if (Studio.loop && Studio.loopA != null && Studio.loopB != null
+        && Studio.tempo >= Studio.loopB - 0.02){
+      studioBuscar(Studio.loopA);
+      todasAsFaixas().forEach(f => { try{ f.el.play().catch(()=>{}); }catch(_){} });
+    }
+    // fim da música: para e marca como finalizado, para o próximo Play
+    // recomeçar do zero em vez de travar no último instante
+    // com loop ativo e B antes do fim, o "fim da música" não vale: quem
+    // manda é o loop (senão a música parava dentro do próprio trecho)
+    const noLoop = Studio.loop && Studio.loopB &&
+                   Studio.loopB < (Studio.duracao || 0) - 0.05;
+    if (!noLoop && Studio.tempo >= (Studio.duracao || 0) - 0.03){
+      studioPausar();
+      Studio.finalizado = true;
+      Studio.tempo = Studio.duracao || 0;
+      studioAtualizarTransporte();
+      studioPosicionarCabeca();
+      return;
+    }
+
+    studioPosicionarCabeca();
+    studioAtualizarTransporte();
+    atualizarMedidores();
+    seguirCabeca();
+  }, 40);
+}
+
+/** Rolagem automática: mantém o cursor visível sem "puxar" a tela do usuário. */
+function seguirCabeca(){
+  const area = $("studioTempo");
+  if (!area || !Studio.tocando) return;
+  const x = xDe(Studio.tempo);
+  const esq = area.scrollLeft, larg = area.clientWidth;
+  if (x < esq + 40 || x > esq + larg - 80){
+    area.scrollLeft = Math.max(0, x - larg * 0.35);
+  }
+}
+
+/** STOP: interrompe e volta ao início. Diferente de "Início" (que só move o
+ *  cursor) e de "Pause" (que mantém a posição). */
+function studioParar(){
+  todasAsFaixas().forEach(f => { try{ f.el.pause(); }catch(_){} });
+  pararRelogio();
+  Studio.tocando = false;
+  Studio.finalizado = false;
+  studioBuscar(0);
+}
+
+/** Retroceder/avançar por segundos, respeitando os limites da música. */
+/** Compasso anterior/próximo, respeitando BPM e fórmula.
+ *
+ *  Usa o início REAL de cada compasso (grade de batidas), então funciona com
+ *  6/8 e 12/8 também — e nunca "anda" para o mesmo lugar quando o cursor já
+ *  está no começo do compasso (era o bug do botão que parecia não fazer nada).
+ */
+function studioIrCompasso(delta){
+  const atual = compassoDe(Studio.tempo);
+  let alvo = atual + delta;
+  if (delta < 0 && Math.abs(Studio.tempo - inicioDoCompasso(atual)) > 0.25){
+    // no meio do compasso: voltar leva ao começo do MESMO compasso
+    alvo = atual;
+  }
+  alvo = Math.max(0, Math.min(Math.max(0, totalCompassos() - 1), alvo));
+  studioBuscar(inicioDoCompasso(alvo));
+}
+
+/** LOOP: repete a seleção (se existir) ou a música inteira.
+ *
+ *  Antes ligar o loop travava no compasso atual sem avisar — o usuário
+ *  apertava e a música repetia um compasso sem explicação. Agora o padrão é a
+ *  música inteira, e o intervalo aparece no botão (tooltip).
+ */
+function studioAlternarLoop(){
+  Studio.loop = !Studio.loop;
+  if (Studio.loop){
+    if (Studio.selecao && Studio.selecao.fim > Studio.selecao.inicio + 0.05){
+      Studio.loopA = Studio.selecao.inicio;
+      Studio.loopB = Studio.selecao.fim;
+    } else {
+      Studio.loopA = 0;
+      Studio.loopB = Studio.duracao || 0;
+    }
+  }
+  atualizarBotaoLoop();
+  marcarSalvo();
+}
+
+function atualizarBotaoLoop(){
+  const b = $("trLoop");
+  if (b){
+    b.classList.toggle("on", !!Studio.loop);
+    b.setAttribute("aria-pressed", Studio.loop ? "true" : "false");
+    const a = Studio.loop ? (Studio.loopA || 0) : 0;
+    const z = Studio.loop ? (Studio.loopB || Studio.duracao || 0) : 0;
+    b.dataset.dica = Studio.loop
+      ? `Repetição ligada: ${fmtSeg(a)}–${fmtSeg(z)} (L desliga)`
+      : "Repetir (L) — no trecho selecionado ou na música toda";
+    b.title = b.dataset.dica;
+  }
+  $("fLoop") && $("fLoop").classList.toggle("on", !!Studio.loop);
+}
+
+function studioPular(segundos){
+  const dur = Studio.duracao || 0;
+  studioBuscar(Math.max(0, Math.min(dur, (Studio.tempo || 0) + segundos)));
+}
+
+function studioBuscar(seg){
+  seg = Math.max(0, Math.min(Studio.duracao || 0, seg || 0));
+  Studio.tempo = seg;
+  todasAsFaixas().forEach(f => { try{ f.el.currentTime = seg; }catch(_){} });
+  studioPosicionarCabeca();
+  studioAtualizarTransporte();
+}
+
+function studioAtualizarTransporte(){
+  const t = Studio.tempo || 0;
+  const dur = Studio.duracao || 0;
+  if ($("trAtual")) $("trAtual").textContent = fmtSeg(t);
+  if ($("trTotal")) $("trTotal").textContent = fmtSeg(dur);
+  if ($("studioDur")) $("studioDur").textContent = "◷ " + fmtSeg(dur);
+  // o ícone do Play/Pause é CSS (body.tocando): trocar textContent num botão
+  // com <svg> apagava o desenho
+  document.body.classList.toggle("tocando", !!Studio.tocando);
+  const btn = $("playG");
+  if (btn) btn.setAttribute("aria-label", Studio.tocando ? "Pausar" : "Reproduzir");
+  if ($("masterVal") && $("masterVol"))
+    $("masterVal").textContent = Math.round(Studio.masterVolume * 100) + "%";
+  if ($("masterVol"))
+    $("masterVol").value = String(Math.round(Studio.masterVolume * 100));
+  if ($("trCompasso")) $("trCompasso").textContent = (compassoDe(t) + 1) + "/" + totalCompassos();
+  if ($("trTom")) $("trTom").textContent = "♫ " + (Studio.tomExibido || Studio.tom || "—");
+  if ($("trBpm")) $("trBpm").textContent = "♩ " + Math.round(Studio.bpm || 0) + " BPM";
+  if ($("studioBpm")) $("studioBpm").textContent = "⏱ " + Math.round(Studio.bpm || 0) + " BPM";
+  if ($("studioTom")) $("studioTom").textContent = "♫ " + (Studio.tomExibido || Studio.tom || "—");
+  if ($("trContagem")) $("trContagem").textContent =
+    Studio.contagem ? `123 Pré-contagem ${Studio.contagem}` : "123 Sem Pré-contagem";
+  if ($("painelFormula")) $("painelFormula").textContent =
+    `${Studio.compasso}/${denominadorCompasso()}`;
+}
+
+/** Espelha o estado interno nos controles (é o que evita "dois estados"). */
+function studioSincronizarControles(){
+  const sel = $("fCompasso");
+  if (sel){
+    const alvo = `${Studio.compasso}/${denominadorCompasso()}`;
+    // se a fórmula do projeto não está na lista, entra como opção extra em
+    // vez de o select mentir mostrando outra
+    if (![...sel.options].some(o => o.value === alvo)){
+      const opt = document.createElement("option");
+      opt.value = alvo; opt.textContent = alvo;
+      sel.appendChild(opt);
+    }
+    sel.value = alvo;
+  }
+  const bpm = $("fBpm");
+  if (bpm) bpm.value = Math.round(Studio.bpm || 120);
+  const zoom = $("fZoomRange");
+  if (zoom) zoom.value = String(Studio.zoom * 6);
+  const tom = $("fTom");
+  if (tom){
+    tom.innerHTML = NOTAS.map((n, i) =>
+      `<option value="${i}">${n}</option>`).join("");
+    const i = indiceNota(Studio.tomExibido || Studio.tom);
+    tom.value = String(i >= 0 ? i : 0);
+  }
+  $("fMetro") && $("fMetro").classList.toggle("on", Studio.metronomo);
+  $("trLoop") && $("trLoop").classList.toggle("on", Studio.loop);
+  $("fLoop") && $("fLoop").classList.toggle("on", Studio.loop);
+  $("fMenu") && $("fMenu").classList.toggle("on", document.body.classList.contains("sem-lateral"));
+}
+
+// ------------------------------------------------------- edição da cifra ----
+/** Acordes no tom gravado: define `acorde` com o valor que está na tela. */
+function studioEditarAcorde(cel){
+  if (cel.querySelector("input")) return;
+  const i = Number(cel.dataset.cel);
+  const atual = Studio.acordes[i];
+  const valor = atual ? String(atual.acorde || "") : "";
+  cel.classList.add("editando");
+  cel.innerHTML = `<input type="text" list="listaAcordes" value="${escapeHtml(valor)}"
+      placeholder="Ex.: F#m7, Bb, D/F#" aria-label="Acorde">`;
+  const input = cel.querySelector("input");
+  input.focus();
+  input.select();
+  const terminar = (gravar) => {
+    const texto = input.value.trim();
+    cel.classList.remove("editando");
+    if (!gravar){ studioDesenharCifra(); return; }
+    studioDefinirAcorde(i, texto);
+  };
+  input.onblur = () => terminar(true);
+  input.onkeydown = (ev) => {
+    if (ev.key === "Enter"){ ev.preventDefault(); terminar(true); }
+    else if (ev.key === "Escape"){ ev.preventDefault(); terminar(false); }
+    else if (ev.key === "Delete" && !input.value){ ev.preventDefault(); terminar("apagar"); }
+  };
+  // Delete com campo vazio = remover o acorde
+  const original = terminar;
+  input.onkeydown = (ev) => {
+    if (ev.key === "Enter"){ ev.preventDefault(); original(true); }
+    else if (ev.key === "Escape"){ ev.preventDefault(); original(false); }
+    else if (ev.key === "Delete" && !input.value){ ev.preventDefault(); studioRemoverAcorde(i); }
+  };
+}
+
+/** Define (ou apaga, com texto vazio) o acorde da célula `i`.
+ *
+ *  O usuário digita o acorde que VÊ (na visão transposta); o disco guarda o
+ *  tom do projeto. Sem desfazer a transposição aqui, reabrir a música mostrava
+ *  o acorde digitado meio tom acima do que foi escrito.
+ */
+function studioDefinirAcorde(i, texto){
+  const existente = Studio.acordes[i];
+  if (texto && Studio.transposicao % 12 !== 0){
+    texto = transporAcorde(texto, -Studio.transposicao,
+                           usarBemol(Studio.tomProjeto || Studio.tom));
+  }
+  if (!existente){
+    // célula de compasso vazio: cria o acorde naquele compasso
+    const cel = document.querySelector(`#linhaCifra .cifra-cel[data-cel="${i}"]`);
+    const inicio = Number(cel && cel.dataset.inicio) || 0;
+    studioAcordesNovo({inicio, fim: inicio + (inicioDoCompasso(1) - inicioDoCompasso(0)),
+                       acorde: texto || "?", confianca: 1, manual: true});
+    return;
+  }
+  if (!texto){
+    // apagar: vira "não definido", não some da timeline
+    existente.acorde = "";
+    existente.confianca = 0;
+    existente.manual = true;
+  } else {
+    existente.acorde = texto;
+    existente.confianca = 1;
+    existente.manual = true;
+  }
+  studioDesenharCifra();
+  studioPosicionarCabeca();
+  studioSalvarEdicoes();
+}
+
+function studioRemoverAcorde(i){
+  const a = Studio.acordes[i];
+  if (!a) return;
+  a.acorde = "";
+  a.confianca = 0;
+  a.manual = true;
+  studioDesenharCifra();
+  studioSalvarEdicoes();
+}
+
+function studioAcordesNovo(a){
+  // inserção ordenada por tempo: a timeline não pode ficar fora de ordem
+  Studio.acordes.push(a);
+  Studio.acordes.sort((x, y) => x.inicio - y.inicio);
+  studioAcordesRenumerar();
+  studioDesenharCifra();
+  studioPosicionarCabeca();
+  studioSalvarEdicoes();
+}
+
+function studioAcordesRenumerar(){
+  Studio.acordes.forEach(a => {
+    a.compasso = compassoDe(a.inicio) + 1;
+    if (!a.fim || a.fim <= a.inicio) a.fim = a.inicio + 1;
+  });
+}
+
+function studioTranspor(semitons){
+  Studio.transposicao += semitons;
+  studioDesenharCifra();
+  // o tom exibido acompanha a transposição; o tom GRAVADO (tomProjeto) e o
+  // áudio não mudam — é o tom que a cifra está sendo lida, não o do projeto
+  const i = indiceNota(Studio.tomExibido || Studio.tom);
+  if (i >= 0){
+    const alvo = ((i + semitons) % 12 + 12) % 12;
+    Studio.tomExibido = (TONS_BEMOL.has(alvo) ? NOTAS_BEMOL : NOTAS)[alvo];
+  }
+  studioAtualizarTransporte();
+  studioSalvarEdicoes();
+}
+
+// --------------------------------------------------- persistência -----------
+function apoioDe(d){
+  const dados = d || Studio.dados || {};
+  if (dados.apoio) return dados.apoio;
+  if (dados.pasta) return dados.pasta.replace(/\/$/, "") + "-apoio";
+  return "";
+}
+
+function marcarSalvo(){ studioSalvarEdicoes(); }
+
+let _salvarTimer = null;
+function studioSalvarEdicoes(){
+  const apoio = apoioDe();
+  if (!apoio) return;
+  if (_salvarTimer) clearTimeout(_salvarTimer);
+  _salvarTimer = setTimeout(async () => {
+    const payload = {
+      apoio,
+      acordes: Studio.acordes,
+      secoes: Studio.secoes,
+      compasso: Studio.compasso,
+      denominador: denominadorCompasso(),
+      bpm: Math.round(Studio.bpm),
+      // tom do projeto + transposição da visão, separados: reabrir mostra
+      // exatamente o que estava na tela, sem somar nem perder meio tom
+      tom: Studio.tomProjeto || Studio.tom,
+      transposicao: Studio.transposicao % 12,
+      master: Math.round(Studio.masterVolume * 100),
+      zoomOnda: Studio.zoomOnda,
+      alturaLinha: Studio.alturaLinha || 0,
+      mix: todasAsFaixas().map(f => ({
+        id: f.id, volume: f.volume, pan: f.pan, mudo: f.mudo, solo: f.solo,
+        oculta: !!Studio.ocultas[f.id],
+      })),
+    };
+    try{
+      const r = await post("/api/edicoes", payload);
+      if (r && r.ok) studioAvisoSalvo();
+    }catch(_){ /* sem disco: a edição continua só na tela */ }
+  }, 350);
+}
+
+async function studioCarregarEdicoes(d){
+  const apoio = apoioDe(d);
+  if (!apoio) return;
+  try{
+    const r = await fetch("/api/edicoes?apoio=" + encodeURIComponent(apoio));
+    if (!r.ok) return;
+    const ed = await r.json();
+    // `null` = nunca editado; lista = edição do usuário (vence a detecção)
+    if (Array.isArray(ed.acordes)) Studio.acordes = ed.acordes.map(a => Object.assign({}, a));
+    if (Array.isArray(ed.secoes)) Studio.secoes = ed.secoes;
+    if (ed.compasso) Studio.compasso = Number(ed.compasso) || Studio.compasso;
+    if (ed.denominador) Studio.denominador = Number(ed.denominador) === 8 ? 8 : 4;
+    if (ed.bpm) Studio.bpm = Number(ed.bpm) || Studio.bpm;
+    // O tom salvo já é o tom EXIBIDO (com a transposição inclusa): os acordes
+    // gravados estão naquele tom. Então não se soma transposição nenhuma —
+    // antes, salvar depois de transpor e reabrir recuava meio tom por vez.
+    // Ordem importa: primeiro o tom do PROJETO (onde os acordes gravados
+    // estão), depois a transposição que estava na tela. Ao contrário, o tom
+    // do projeto sobrescrevia o tom já transposto e a música reabria meio
+    // tom abaixo do que o usuário deixou.
+    if (ed.tom && indiceNota(ed.tom) >= 0){
+      Studio.tomProjeto = ed.tom;
+      if (indiceNota(Studio.tom) < 0) Studio.tom = ed.tom;
+      Studio.tomExibido = ed.tom;
+      Studio.transposicao = 0;
+    }
+    const trans = Number(ed.transposicao) || 0;
+    if (trans && trans % 12 !== 0) studioTranspor(trans % 12);
+    if (ed.master != null && isFinite(Number(ed.master))){
+      Studio.masterVolume = Math.max(0, Math.min(1, Number(ed.master) / 100));
+    }
+    if (ed.zoomOnda){ Studio.zoomOnda = Number(ed.zoomOnda) || 1; }
+    if (ed.alturaLinha){
+      studioDefinirAltura(Number(ed.alturaLinha));
+      const fa = $("fAltura"); if (fa) fa.value = String(Studio.alturaLinha);
+    }
+    if (Array.isArray(ed.mix)){
+      const mapa = new Map(ed.mix.map(m => [m.id, m]));
+      todasAsFaixas().forEach(f => {
+        const m = mapa.get(f.id);
+        if (!m) return;
+        f.volume = Number(m.volume ?? 1);
+        f.pan = Number(m.pan ?? 0);
+        f.mudo = !!m.mudo;
+        f.solo = !!m.solo;
+        if (m.oculta != null){ Studio.ocultas[f.id] = !!m.oculta; }
+        rotuloVolume(f); rotuloPan(f);
+        const v = f.linha.querySelector(".faixa-vol"); if (v) v.value = Math.round(f.volume * 100);
+        const p = f.linha.querySelector(".faixa-pan");
+        if (p){ p.value = Math.round(f.pan * 100); p.dataset.centro = f.pan === 0 ? "1" : "0"; }
+      });
+    }
+    // sliders do topo refletem o que foi restaurado
+    if ($("masterVol")) $("masterVol").value = String(Math.round(Studio.masterVolume * 100));
+    if ($("masterVal")) $("masterVal").textContent = Math.round(Studio.masterVolume * 100) + "%";
+    if ($("fWavZoom")) $("fWavZoom").value = String(Studio.zoomOnda || 1);
+    // alturas e ocultas depois de aplicar volumes/mute/solo salvos
+    studioSincronizarAlturas();
+    todasAsFaixas().forEach(f => {
+      f.trilha.style.display = Studio.ocultas[f.id] ? "none" : "";
+      f.linha.classList.toggle("oculta", !!Studio.ocultas[f.id]);
+      const olho = f.linha.querySelector(".btOlho");
+      if (olho) olho.classList.toggle("off", !!Studio.ocultas[f.id]);
+    });
+    aplicarMix();
+    // redesenho completo: a cifra e a régua mudam com acordes/compasso/tom
+    studioSincronizarControles();
+    studioDesenharRegua();
+    studioDesenharCifra();
+    studioDesenharTrilhas();
+    studioPosicionarCabeca();
+    studioAtualizarTransporte();
+  }catch(_){ /* sem edições salvas: segue com o detectado */ }
+}
+
+function studioAvisoSalvo(){
+  const alvo = $("studioSalvo");
+  if (!alvo) return;
+  alvo.hidden = false;
+  alvo.textContent = "projeto salvo";
+  if (Studio.salvoTimer) clearTimeout(Studio.salvoTimer);
+  Studio.salvoTimer = setTimeout(() => { alvo.hidden = true; }, 1600);
+}
+
+// O menu "Exportar" só mostra o que existe de verdade na pasta: música
+// separada sem L/R (versão antiga ou --no-lr) não pode oferecer link que dá 404.
+function studioAtualizarLinksExportar(d){
+  const pares = [["expLR", d.lr], ["expClique", d.clique], ["expGuia", d.guia]];
   for (const [id, url] of pares){
     const el = $(id);
     if (!el) continue;
-    const tem = !!url;
-    el.style.display = tem ? "" : "none";
-    if (tem) el.href = url;
+    el.style.display = url ? "" : "none";
+    if (url) el.href = url;
   }
   const rel = $("expRelatorio");
   if (rel){
@@ -1760,519 +3474,253 @@ function studioAtualizarLinksExportar(d){
   }
 }
 
-function studioLimparFaixas(){
-  Studio.faixas.forEach(f => { try { f.el.pause(); } catch (_) {} });
-  Studio.ensaio.forEach(f => { try { f.el.pause(); } catch (_) {} });
-  Studio.faixas = [];
-  Studio.ensaio = [];
-  if (Studio.timer){ clearInterval(Studio.timer); Studio.timer = null; }
-  if (Studio.raf){ cancelAnimationFrame(Studio.raf); Studio.raf = null; }
-  Studio.tocando = false;
-  Studio.loopA = Studio.loopB = null;
-  $("colStems").innerHTML = "";
-}
-
-// Clique e Guia: mesma ideia da tela deles — duas trilhas finas com a
-// "forma de onda" do metrônomo, que na prática é a marcação de cada tempo.
-// Desenhar o pulso (e não um áudio borrado) é mais útil: o músico enxerga
-// onde cai o 1 do compasso.
-function studioMontarEnsaio(d){
-  const est = d.estudio || {};
-  const temClique = !!d.clique;
-  const temGuia = !!d.guia;
-  $("trilhaClique").style.display = temClique || Studio.batidas.length ? "block" : "none";
-  $("trilhaGuia").style.display = temGuia ? "block" : "none";
-  const rot = (tipo, mostra) => {
-    document.querySelectorAll(`.rotulo-faixa[data-tipo="${tipo}"]`)
-      .forEach(el => { el.style.display = mostra ? "flex" : "none"; });
-  };
-  rot("clique", temClique || !!Studio.batidas.length);
-  rot("guia", temGuia);
-
-  const linhaCifra = $("linhaCifra");
-  linhaCifra.style.display = Studio.acordes.length ? "block" : "none";
-  document.querySelector(".rotulo-cifra").style.display =
-    Studio.acordes.length ? "flex" : "none";
-  $("ferrDica").textContent = Studio.acordes.length
-    ? "cifra estimada · confiança " + (d.compasso_confianca || est.compasso_confianca || 0).toFixed(2)
-    : "sem acordes nesta música";
-
-  // Clique e guia TOCAM de verdade, e não só aparecem desenhados: no ensaio
-  // a banda precisa ouvir o metrônomo e a contagem. Volume e mute próprios,
-  // porque a guia costuma ir mais alta que o clique no in-ear.
-  Studio.ensaio = [];
-  const ligar = (url, tipo, volume) => {
-    if (!url) return;
-    const el = new Audio();
-    el.src = url;
-    el.preload = "auto";
-    el.loop = false;
-    el.volume = volume;
-    const f = {tipo, el, volume, mudo: false};
-    Studio.ensaio.push(f);
-    return f;
-  };
-  const fClique = ligar(d.clique, "clique", 0.9);
-  const fGuia = ligar(d.guia, "guia", 1.0);
-  garantirControlesEnsaio(fClique, fGuia);
-}
-
-// Controles das faixas de ensaio na coluna da esquerda (como os da foto:
-// "Click" com som, nível e mute). São criados uma vez e reaproveitados.
-function garantirControlesEnsaio(fClique, fGuia){
-  for (const [tipo, faixa] of [["clique", fClique], ["guia", fGuia]]){
-    const rotulo = document.querySelector(`.rotulo-faixa[data-tipo="${tipo}"]`);
-    if (!rotulo) continue;
-    rotulo.innerHTML = `<span>${tipo === "clique" ? "Click" : "Guia"}</span>`;
-    if (!faixa) continue;
-    const caixa = document.createElement("div");
-    caixa.className = "ensaio-ctrl";
-    caixa.innerHTML = `
-      <button class="bt btM" type="button" title="Mute ${tipo}">M</button>
-      <input class="vol" type="range" min="0" max="100" value="${Math.round(faixa.volume * 100)}"
-             title="Volume do ${tipo}">`;
-    const btM = caixa.querySelector(".btM");
-    const vol = caixa.querySelector(".vol");
-    btM.onclick = () => {
-      faixa.mudo = !faixa.mudo;
-      btM.classList.toggle("on-m", faixa.mudo);
-      studioAplicarEnsaio();
-    };
-    vol.oninput = () => { faixa.volume = vol.value / 100; studioAplicarEnsaio(); };
-    rotulo.appendChild(caixa);
-  }
-  studioAplicarEnsaio();
-}
-
-function studioAplicarEnsaio(){
-  for (const f of Studio.ensaio) f.el.muted = f.mudo;
-  for (const f of Studio.ensaio) f.el.volume = f.volume;
-}
-
-// --------------------------------------------------------------- escala ----
-// A timeline mostra a música inteira por padrão; o zoom amplia para o
-// tamanho do container (e aí a rolagem horizontal aparece).
-function studioCalcularEscala(){
-  const larg = $("tempoRolagem").parentElement.clientWidth
-    || $("colTempo").clientWidth || 900;
-  const dur = Studio.duracao || 1;
-  Studio.pxPorSeg = Math.max(2, (larg / dur) * Studio.zoom);
-  $("tempoRolagem").style.width = Math.max(larg, dur * Studio.pxPorSeg) + "px";
-}
-
-function xDe(seg){ return seg * Studio.pxPorSeg; }
-function segDe(x){ return x / Studio.pxPorSeg; }
-
-// --------------------------------------------------------------- desenho ---
-function studioDesenhar(){
-  if (!Studio.duracao) return;
-  studioDesenharRegua();
-  studioDesenharCifra();
-  studioDesenharTrilhasEnsaio();
-  studioDesenharOndas();
-  studioPosicionarCabeca();
-}
-
-function studioDesenharRegua(){
-  const regua = $("regua");
-  const larg = Studio.duracao * Studio.pxPorSeg;
-  const b = Studio.batidas;
-  const partes = [];
-  // marcador de compasso no começo, como o "4/4" da foto
-  partes.push(`<div class="marca-compasso" style="left:0"></div>`);
-  partes.push(`<div class="comp-num" style="left:2px;top:2px;color:#8f9aa8;font-weight:600">${Studio.compasso}/4</div>`);
-  if (b.length){
-    for (let i = 0; i < b.length; i++){
-      const x = xDe(b[i]);
-      if (x > larg + 2) break;
-      const forte = i % Studio.compasso === 0;
-      partes.push(`<div class="batida${forte ? " forte" : ""}" style="left:${x.toFixed(1)}px"></div>`);
-      if (forte){
-        const num = Math.floor(i / Studio.compasso) + 1;
-        // Como o CueWee: número em todos os compassos quando cabe, e de 4 em
-        // 4 quando a timeline está apertada (número em cima de número fica
-        // ilegível, e a régua existe justamente para localizar o compasso).
-        const espaco = xDe(Studio.batidas[0] + (60 / (Studio.dados?.bpm || 120)) * Studio.compasso) - xDe(Studio.batidas[0]);
-        const todos = espaco > 26;
-        if (todos || num % 4 === 1){
-          partes.push(`<div class="comp-num" style="left:${x.toFixed(1)}px">${num}</div>`);
-        }
-      }
-    }
-  }
-  regua.innerHTML = partes.join("");
-  $("regua").onclick = (ev) => {
-    const r = ev.currentTarget.getBoundingClientRect();
-    studioBuscar(Math.max(0, segDe(ev.clientX - r.left)));
-  };
-}
-
-function studioDesenharCifra(){
-  const linha = $("linhaCifra");
-  if (!Studio.acordes.length){ linha.innerHTML = ""; return; }
-  const partes = [];
-  Studio.acordes.forEach((a, i) => {
-    const x = xDe(a.inicio);
-    const larg = Math.max(24, xDe(a.fim) - x);
-    const fraca = (a.confianca || 0) < 0.35;
-    const nome = a.acorde || "?";
-    partes.push(`<div class="cifra-cel${fraca ? " fraca" : ""}" data-i="${i}"
-        style="left:${x.toFixed(1)}px;width:${larg.toFixed(1)}px"
-        title="Compasso ${a.compasso} · ${nome} · confiança ${(a.confianca||0).toFixed(2)} · ${fmtSeg(a.inicio)}"
-        >${escapeHtml(nome)}</div>`);
-  });
-  linha.innerHTML = partes.join("");
-}
-
-function studioDesenharTrilhasEnsaio(){
-  const b = Studio.batidas;
-  // altura fixa: pulso do clique e blocos de seção da guia
-  const alturaClique = 34, alturaGuia = 34;
-  const larg = Math.max(1, Math.round(Studio.duracao * Studio.pxPorSeg));
-  for (const [id, altura] of [["trilhaClique", alturaClique], ["trilhaGuia", alturaGuia]]){
-    const alvo = $(id);
-    if (!alvo || alvo.style.display === "none") continue;
-    alvo.innerHTML = `<canvas height="${altura}" width="${larg}"></canvas>`;
-  }
-
-  // click: barra em cada tempo, mais alta no 1º do compasso
-  const cvC = $("trilhaClique").querySelector("canvas");
-  const gC = ctx2d(cvC);
-  if (cvC && gC && b.length){
-    const g = gC;
-    prepararCanvas(cvC);
-    g.fillStyle = "#3a4657";
-    for (let i = 0; i < b.length; i++){
-      const x = xDe(b[i]);
-      const forte = i % Studio.compasso === 0;
-      const h = forte ? 22 : 12;
-      g.fillRect(x, (cvC.height - h) / 2, 2, h);
-    }
-  }
-
-  // guia: blocos de seção. É o mapa que o músico lê no palco, e é o que a
-  // foto do CueWee mostra (VERO, REFRÃO, PONTE... com pré-contagem).
-  const cvG = $("trilhaGuia").querySelector("canvas");
-  const gG = ctx2d(cvG);
-  if (cvG && gG){
-    const g = gG;
-    prepararCanvas(cvG);
-    if (Studio.secoes.length){
-      Studio.secoes.forEach((s) => {
-        const x = xDe(s.start), w = Math.max(8, xDe(s.end) - x);
-        g.fillStyle = "rgba(98,72,168,.55)";
-        g.fillRect(x + 1, 4, Math.max(2, w - 2), cvG.height - 8);
-        g.strokeStyle = "#7c5cff"; g.lineWidth = 1;
-        g.strokeRect(x + 1.5, 4.5, Math.max(2, w - 3), cvG.height - 9);
-        if (w > 44){
-          g.fillStyle = "#e8e2ff";
-          g.font = "600 10.5px ui-sans-serif,system-ui,sans-serif";
-          g.fillText(String(s.nome || s.rotulo).toUpperCase(), x + 6, cvG.height / 2 + 4);
-        }
-      });
-    }
+// ---------------------------------------------------------- exportar --------
+async function studioExportarMix(){
+  const apoio = apoioDe();
+  const pasta = (Studio.dados && Studio.dados.pasta) || "";
+  if (!pasta){ alert("não sei onde salvar: reabra a música pela biblioteca"); return; }
+  const faixas = Studio.faixas.filter(f => f.url).map(f => ({
+    caminho: caminhoDoUrl(f.url),
+    volume: f.volume, pan: f.pan, mudo: f.mudo, solo: f.solo,
+  }));
+  if (!faixas.length){ alert("nenhuma faixa para exportar"); return; }
+  const botao = $("expMix");
+  const rotulo = botao ? botao.textContent : "";
+  if (botao){ botao.disabled = true; botao.textContent = "mixando…"; }
+  try{
+    const r = await post("/api/exportar-mix", {pasta, apoio, faixas});
+    if (!r || !r.url) throw new Error((r && r.erro) || "falha ao exportar");
+    const a = document.createElement("a");
+    a.href = r.url;
+    a.download = r.nome || "mix.wav";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    studioAvisoSalvo();
+  }catch(e){
+    alert("não foi possível exportar a mixagem: " + e.message);
+  }finally{
+    if (botao){ botao.disabled = false; botao.textContent = rotulo; }
   }
 }
 
-// Forma de onda por stem. Duas opções:
-//  1) o navegador decodifica o áudio e desenhamos os picos reais;
-//  2) se não der (arquivo grande/rodeado de CORS), desenhamos uma barra
-//     neutra — NUNCA uma onda inventada (mentir na onda foi o erro da 0.1.9).
-function studioDesenharOndas(){
-  const larg = Math.max(1, Math.round(Studio.duracao * Studio.pxPorSeg));
-  for (const f of Studio.faixas){
-    const cv = f.canvas;
-    if (!cv) continue;
-    cv.width = larg;
-    const g = ctx2d(cv);
-    if (!g) continue;
-    g.clearRect(0, 0, cv.width, cv.height);
-    if (f.picos){
-      desenharPicos(g, f.picos, cv, f.cor);
-    } else if (!f.carregandoOnda){
-      f.carregandoOnda = true;
-      carregarPicos(f, cv.width).then((picos) => {
-        if (!picos) return;
-        f.picos = picos;
-        studioDesenharOndas();
-      });
-    }
-  }
+/** Converte a URL de /api/file de volta em caminho de disco. */
+function caminhoDoUrl(url){
+  try{
+    const u = new URL(url, location.origin);
+    return u.searchParams.get("p") || "";
+  }catch(_){ return ""; }
 }
 
-async function carregarPicos(faixa, amostras){
-  try {
-    const resp = await fetch(faixa.el.src);
-    if (!resp.ok) return null;
-    const buf = await resp.arrayBuffer();
-    const ctx = Studio.ctx || new (window.AudioContext || window.webkitAudioContext)();
-    const audio = await ctx.decodeAudioData(buf);
-    const canal = audio.getChannelData(0);
-    const passo = Math.max(1, Math.floor(canal.length / amostras));
-    const picos = new Float32Array(amostras);
-    for (let i = 0; i < amostras; i++){
-      const ini = i * passo;
-      let pico = 0;
-      for (let j = ini; j < ini + passo && j < canal.length; j += 4){
-        const v = Math.abs(canal[j]);
-        if (v > pico) pico = v;
-      }
-      picos[i] = pico;
-    }
-    return picos;
-  } catch (_) {
-    return null;
-  }
-}
-
-const ALTURA_FAIXA = 46;
-
-// getContext pode devolver null (navegador antigo, canvas desativado, jsdom
-// sem pacote nativo). Nesse caso a timeline continua funcionando — só a
-// forma de onda não aparece. Nunca deixar o desenho derrubar a tela.
-function ctx2d(cv){
-  try { return cv && cv.getContext ? cv.getContext("2d") : null; } catch (_) { return null; }
-}
-
-function prepararCanvas(cv){
-  // nitidez em tela 2x: sem isso a régua e a onda ficam borradas
-  const dpr = window.devicePixelRatio || 1;
-  if (dpr > 1 && cv.dataset.dpr !== String(dpr)){
-    cv.dataset.dpr = String(dpr);
-    cv.width = cv.width; // no-op para manter a semântica
-  }
-}
-
-function desenharPicos(g, picos, cv, cor){
-  const meio = cv.height / 2;
-  const amp = (cv.height / 2) - 3;
-  g.fillStyle = cor;
-  g.globalAlpha = 0.85;
-  for (let i = 0; i < picos.length; i++){
-    const h = Math.max(1, picos[i] * amp * 2.4);
-    g.fillRect(i, meio - h / 2, 1, h);
-  }
-  g.globalAlpha = 1;
-}
-
-function studioPosicionarCabeca(){
-  const t = Studio.faixas[0] ? Studio.faixas[0].el.currentTime : (Studio.tempo || 0);
-  document.querySelectorAll(".cabeca-tempo").forEach(el => el.remove());
-  const x = xDe(t);
-  const alvos = [$("trilhaClique"), $("trilhaGuia"), $("linhaCifra"),
-                 ...Studio.faixas.map(f => f.linha)];
-  for (const alvo of alvos){
-    if (!alvo || alvo.style.display === "none") continue;
-    const cabeca = document.createElement("div");
-    cabeca.className = "cabeca-tempo";
-    cabeca.style.left = x + "px";
-    alvo.appendChild(cabeca);
-  }
-  // cifra atual: a célula cujo intervalo contém o tempo
-  const atual = Studio.acordes.findIndex(a => t >= a.inicio && t < a.fim);
-  $("linhaCifra").querySelectorAll(".cifra-cel").forEach((el, i) => {
-    el.classList.toggle("atual", i === atual);
-  });
-}
-
-// --------------------------------------------------------------- mixagem ---
-function studioAplicarMix(){
-  const temSolo = Studio.faixas.some(f => f.solo);
-  for (const f of Studio.faixas){
-    const audivel = temSolo ? f.solo : !f.mudo;
-    f.el.muted = !audivel;
-    f.el.volume = f.volume;
-    f.linha.classList.toggle("mudo", !audivel);
-    f.linha.classList.toggle("solo", f.solo);
-  }
-}
-
-function studioDuracao(){
-  if (Studio.duracao) return Studio.duracao;
-  const f = Studio.faixas.find(x => isFinite(x.el.duration) && x.el.duration > 0);
-  return f ? f.el.duration : 0;
-}
-
-function studioAtualizarTransporte(){
-  const t = Studio.faixas[0] ? Studio.faixas[0].el.currentTime : 0;
-  $("trAtual").textContent = fmtSeg(t);
-  $("trTotal").textContent = fmtSeg(studioDuracao());
-  $("studioDur").textContent = fmtSeg(studioDuracao());
-  $("playG").textContent = Studio.tocando ? "❚❚" : "▶";
-}
-
-async function studioTocarPausar(){
-  if (!Studio.faixas.length) return;
-  if (Studio.tocando){
-    Studio.faixas.forEach(f => { try { f.el.pause(); } catch (_) {} });
-    Studio.ensaio.forEach(f => { try { f.el.pause(); } catch (_) {} });
-    Studio.tocando = false;
-    studioAtualizarTransporte();
-    return;
-  }
-  const base = Studio.faixas[0].el.currentTime;
-  Studio.faixas.forEach(f => { try { f.el.currentTime = base; } catch (_) {} });
-  Studio.ensaio.forEach(f => { try { f.el.currentTime = base; } catch (_) {} });
-  await Promise.all(Studio.faixas.map(f => f.el.play().catch(() => {})));
-  // o clique/guia entram junto; se o navegador bloquear o autoplay deles,
-  // a música continua e só o metrônomo fica fora — não derruba o play.
-  await Promise.all(Studio.ensaio.map(f => f.el.play().catch(() => {})));
-  Studio.tocando = true;
-  studioAtualizarTransporte();
-
-  // Um único relógio de 60 ms: realinha as faixas e redesenha a cabeça.
-  // Sem o realinhamento, um stem "escorrega" com o tempo e a comparação
-  // entre instrumentos fica errada (o sintoma: a bateria parece adiantada).
-  if (!Studio.timer){
-    Studio.timer = setInterval(() => {
-      if (!Studio.tocando) return;
-      const ref = Studio.faixas[0].el;
-      for (const f of Studio.faixas){
-        if (Math.abs(f.el.currentTime - ref.currentTime) > 0.08){
-          try { f.el.currentTime = ref.currentTime; } catch (_) {}
-        }
-      }
-      // clique e guia: janela menor (25 ms). Eles são a referência do
-      // tempo — 80 ms de atraso no clique já soa como banda adiantada.
-      for (const f of Studio.ensaio){
-        if (Math.abs(f.el.currentTime - ref.currentTime) > 0.025){
-          try { f.el.currentTime = ref.currentTime; } catch (_) {}
-        }
-      }
-      // loop: volta para A ao passar de B
-      if (Studio.loop && Studio.loopA != null && Studio.loopB != null
-          && ref.currentTime >= Studio.loopB){
-        studioBuscar(Studio.loopA);
-      }
-      studioPosicionarCabeca();
-      studioAtualizarTransporte();
-    }, 60);
-  }
-}
-
-function studioBuscar(seg){
-  seg = Math.max(0, Math.min(studioDuracao(), seg));
-  Studio.faixas.forEach(f => { try { f.el.currentTime = seg; } catch (_) {} });
-  Studio.ensaio.forEach(f => { try { f.el.currentTime = seg; } catch (_) {} });
-  studioPosicionarCabeca();
-  studioAtualizarTransporte();
-}
-
-function studioCompassoAtual(){
-  const t = Studio.faixas[0] ? Studio.faixas[0].el.currentTime : 0;
-  const b = Studio.batidas;
-  if (!b.length) return 0;
-  let idx = 0;
-  for (let i = 0; i < b.length; i++) if (b[i] <= t + 1e-4) idx = i;
-  return Math.floor(idx / Studio.compasso);
-}
-
-// --------------------------------------------------------------- botões ----
+// ------------------------------------------------------------- botões -------
 function studioLigarBotoes(){
-  $("playG").onclick = () => studioTocarPausar();
-  $("trVoltar").onclick = () => studioBuscar(0);
-  $("trAnterior").onclick = () => {
-    const b = Studio.batidas;
-    if (!b.length) return studioBuscar(0);
-    const c = Math.max(0, studioCompassoAtual() - 1);
-    studioBuscar(b[c * Studio.compasso] || 0);
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+
+  on("playG", () => studioTocarPausar());
+  on("trStop", () => studioParar());
+  on("trInicio", () => studioBuscar(0));
+  // 5 s é o passo que o usuário sente como "alguns segundos"; clamp nos limites
+  on("trVoltar", () => studioPular(-5));
+  on("trAvancar", () => studioPular(5));
+  on("trAnterior", () => studioIrCompasso(-1));
+  on("trProximo", () => studioIrCompasso(1));
+  on("trSecao", () => {
+    const t = Studio.tempo;
+    const prox = Studio.secoes.filter(s => s.start > t + 0.05)
+      .sort((a, b) => a.start - b.start)[0];
+    if (prox) studioBuscar(prox.start);
+    else if (Studio.secoes.length) studioBuscar(0);
+  });
+  on("trLoop", () => studioAlternarLoop());
+
+  // --- volume geral ---------------------------------------------------
+  const master = $("masterVol");
+  if (master) master.oninput = () => {
+    Studio.masterVolume = Number(master.value) / 100;
+    $("masterVal").textContent = master.value + "%";
+    aplicarMix();
+    marcarSalvo();
   };
-  $("trProximo").onclick = () => {
-    const b = Studio.batidas;
-    if (!b.length) return;
-    const c = studioCompassoAtual() + 1;
-    studioBuscar(b[Math.min(b.length - 1, c * Studio.compasso)] || studioDuracao());
-  };
-  $("trLoop").onclick = () => {
-    Studio.loop = !Studio.loop;
-    if (Studio.loop){
-      // loop = o compasso atual (o gesto que se usa para ensaiar um trecho)
-      const b = Studio.batidas, c = studioCompassoAtual();
-      Studio.loopA = b[c * Studio.compasso] || 0;
-      Studio.loopB = b[(c + 1) * Studio.compasso] || studioDuracao();
-    }
-    $("trLoop").classList.toggle("on", Studio.loop);
-    $("fLoop").classList.toggle("on", Studio.loop);
-  };
-  $("fLoop").onclick = () => $("trLoop").click();
-  $("fMetro").onclick = () => {
-    // atalho geral: cala/abre o clique e a guia de uma vez (o M de cada
-    // faixa continua valendo para ajuste fino)
+
+  on("fLoop", () => $("trLoop").click());
+  on("fMetro", () => {
     Studio.metronomo = !Studio.metronomo;
     $("fMetro").classList.toggle("on", Studio.metronomo);
-    Studio.ensaio.forEach(f => { f.mudo = !Studio.metronomo; });
-    document.querySelectorAll(".ensaio-ctrl .btM").forEach(bt => {
-      bt.classList.toggle("on-m", !Studio.metronomo);
-    });
-    // aplica lendo o novo valor: `studioAplicarEnsaio` escreve `el.muted`
-    // a partir de `f.mudo`, então precisa rodar DEPOIS do laço acima
-    studioAplicarEnsaio();
-  };
-  $("fMarcar").onclick = () => {
-    // marcar seção: usa as seções já detectadas e mostra no mapa (não
-    // reescreve o áudio; a marcação viva fica para exportar depois)
-    const t = Studio.faixas[0] ? Studio.faixas[0].el.currentTime : 0;
-    Studio.secoes.push({start: t, end: Math.min(studioDuracao(), t + 8),
+    // o M de cada faixa de ensaio continua valendo para ajuste fino
+    Studio.ensaio.forEach(f => { f.mudo = false; });
+    aplicarMix();
+    marcarSalvo();
+  });
+  on("fMarcar", () => {
+    const t = Studio.tempo;
+    const inicio = inicioDoCompasso(compassoDe(t));
+    Studio.secoes.push({start: inicio, end: inicio + (inicioDoCompasso(1) - inicioDoCompasso(0)),
                         rotulo: "?", nome: "Nova seção"});
-    studioDesenharTrilhasEnsaio();
+    studioDesenharTrilhas();
+    studioSalvarEdicoes();
+  });
+  on("cifraEditar", () => {
+    const primeira = document.querySelector("#linhaCifra .cifra-cel");
+    if (primeira) studioEditarAcorde(primeira);
+    else alert("esta música não tem compassos para editar (falta a grade de tempos)");
+  });
+  on("expMix", () => studioExportarMix());
+  on("expProjeto", () => { studioSalvarEdicoes(); studioAvisoSalvo(); });
+  on("expPasta", () => abrirPastaServidor(ULTIMO && ULTIMO.pasta));
+
+  // --- fórmula de compasso ---------------------------------------------
+  const fCompasso = $("fCompasso");
+  if (fCompasso) fCompasso.onchange = () => {
+    const [num, den] = String(fCompasso.value).split("/").map(Number);
+    Studio.compasso = num || 4;
+    Studio.denominador = den === 8 ? 8 : 4;
+    studioDesenharRegua();
+    studioDesenharTrilhas();
     studioPosicionarCabeca();
+    studioAtualizarTransporte();
+    studioSalvarEdicoes();
   };
-  $("fZoom").onchange = (ev) => {
-    Studio.zoom = parseFloat(ev.target.value) || 1;
-    studioCalcularEscala();
+
+  // --- BPM: muda a grade, não o áudio --------------------------------
+  const fBpm = $("fBpm");
+  if (fBpm) fBpm.onchange = () => {
+    const novo = Math.max(20, Math.min(400, Number(fBpm.value) || Studio.bpm));
+    Studio.bpm = novo;
+    // se as batidas vieram do BPM (música sem grade detectada), refaz a grade
+    if (Studio.batidasSinteticas) Studio.batidas = [];
+    gerarBatidasSinteticas();
+    Studio.acordes.forEach(a => { a.compasso = compassoDe(a.inicio) + 1; });
+    calcEscala();
     studioDesenhar();
+    studioAtualizarTransporte();
+    studioSalvarEdicoes();
   };
-  $("fMenu").onclick = () => {
-    const semLateral = document.body.classList.toggle("sem-lateral");
-    $("fMenu").classList.toggle("on", semLateral);
-    $("fMenu").setAttribute("aria-pressed", semLateral ? "true" : "false");
-    $("fMenu").title = semLateral
-      ? "Mostrar o menu lateral"
-      : "Esconder o menu lateral e aumentar a área de trabalho";
-    try { localStorage.setItem("mrqvs.semLateral", semLateral ? "1" : "0"); } catch (_) {}
-    // a timeline ocupa o novo espaço: recalcula a escala no próximo frame
-    setTimeout(() => { studioCalcularEscala(); studioDesenhar(); }, 60);
+
+  // --- tom: transpõe a cifra, nunca o áudio --------------------------
+  const fTom = $("fTom");
+  if (fTom) fTom.onchange = () => {
+    // o <select> guarda o ÍNDICE da nota (0=C). Escolher um tom é escolher
+    // em que tom LER a cifra: a distância é sempre medida a partir do tom do
+    // projeto, então voltar ao tom original zera a transposição de verdade.
+    const para = Number(fTom.value);
+    const base = indiceNota(Studio.tomProjeto || Studio.tom);
+    if (base < 0 || !Number.isFinite(para)){
+      // projeto sem tom detectado: só registra o tom da visão
+      Studio.tomExibido = (Number.isFinite(para) ? NOTAS[para] : Studio.tom);
+      studioAtualizarTransporte();
+      return;
+    }
+    const dist = ((para - base) % 12 + 12) % 12;
+    if (dist === Studio.transposicao % 12){
+      studioAtualizarTransporte();
+      return;
+    }
+    Studio.transposicao = 0;
+    studioTranspor(dist);
   };
-  $("studioAoVivo").onclick = () => {
+
+  // --- zoom ----------------------------------------------------------
+  const zoom = $("fZoomRange");
+  if (zoom) zoom.oninput = () => {
+    const fator = Number(zoom.value) / 6;
+    const area = $("studioTempo");
+    const antes = area ? (area.scrollLeft + area.clientWidth / 2) / (Studio.pxPorSeg || 1) : 0;
+    Studio.zoom = Math.max(0.15, fator);
+    calcEscala();
+    studioDesenhar();
+    // zoom preserva o ponto central que o usuário estava olhando
+    if (area) area.scrollLeft = Math.max(0, xDe(antes) - area.clientWidth / 2);
+    if ($("ferrDica")) $("ferrDica").textContent = "zoom " + Math.round(Studio.zoom * 100) + "%";
+  };
+
+  // --- zoom das ondas (independente da régua) ------------------------
+  const wavZoom = $("fWavZoom");
+  if (wavZoom) wavZoom.oninput = () => {
+    Studio.zoomOnda = Math.max(0.5, Number(wavZoom.value) || 1);
+    studioDesenharFaixas();
+    if ($("ferrDica")) $("ferrDica").textContent = "onda " + Math.round(Studio.zoomOnda * 100) + "%";
+  };
+
+  // --- altura das linhas ---------------------------------------------
+  const fAltura = $("fAltura");
+  if (fAltura) fAltura.oninput = () => {
+    studioDefinirAltura(Number(fAltura.value));
+    if ($("ferrDica")) $("ferrDica").textContent = "altura " + Math.round(Studio.alturaLinha) + "px";
+    try{ localStorage.setItem("mrqvs.alturaLinha", String(Studio.alturaLinha)); }catch(_){}
+  };
+
+  // --- painel lateral ------------------------------------------------
+  on("fMenu", () => {
+    const sem = document.body.classList.toggle("sem-lateral");
+    $("fMenu").classList.toggle("on", sem);
+    $("fMenu").setAttribute("aria-pressed", sem ? "true" : "false");
+    try{ localStorage.setItem("mrqvs.semLateral", sem ? "1" : "0"); }catch(_){}
+    setTimeout(() => { calcEscala(); studioDesenhar(); }, 60);
+  });
+  on("studioAoVivo", () => {
     Studio.aoVivo = document.body.classList.toggle("ao-vivo");
     $("studioAoVivo").classList.toggle("on", Studio.aoVivo);
-    document.body.classList.toggle("ao-vivo", Studio.aoVivo);
-    setTimeout(() => { studioCalcularEscala(); studioDesenhar(); }, 60);
-  };
-  // "Exportar música": no CueWee abre as opções (stems, L/R, click, guia).
-  // Aqui o menu leva aos arquivos que realmente existem na pasta — sem
-  // inventar um .zip que o programa não gera.
-  $("studioExportar").onclick = (ev) => {
+    setTimeout(() => { calcEscala(); studioDesenhar(); }, 60);
+  });
+
+  // --- exportar (menu) ------------------------------------------------
+  on("studioExportar", (ev) => {
     ev.stopPropagation();
     const menu = $("menuExportar");
-    const abrir = menu.hidden;
-    menu.hidden = !abrir;
-    $("studioExportar").setAttribute("aria-expanded", abrir ? "true" : "false");
-  };
+    if (!menu) return;
+    menu.hidden = !menu.hidden;
+    $("studioExportar").setAttribute("aria-expanded", menu.hidden ? "false" : "true");
+  });
   document.addEventListener("click", (ev) => {
     const menu = $("menuExportar");
-    if (menu && !menu.hidden && !menu.contains(ev.target)
-        && ev.target.id !== "studioExportar"){
+    if (menu && !menu.hidden && !menu.contains(ev.target) && ev.target.id !== "studioExportar"){
       menu.hidden = true;
       $("studioExportar").setAttribute("aria-expanded", "false");
     }
   });
-  $("expPasta").onclick = () => abrirPastaServidor(ULTIMO && ULTIMO.pasta);
 
-  // atalhos de teclado, como numa DAW
+  // --- clique na régua / na área de tempo ----------------------------
+  const area = $("studioTempo");
+  if (area){
+    // ctrl+roda = zoom (o gesto de DAW); roda sozinha rola
+    area.addEventListener("wheel", (ev) => {
+      if (!ev.ctrlKey) return;
+      ev.preventDefault();
+      const el = $("fZoomRange");
+      if (!el) return;
+      el.value = String(Math.max(1, Math.min(40, Number(el.value) - Math.sign(ev.deltaY) * 1.5)));
+      el.oninput();
+    }, {passive: false});
+  }
+
+  // --- teclado -------------------------------------------------------
   document.addEventListener("keydown", (ev) => {
     if (ev.target && /input|select|textarea/i.test(ev.target.tagName)) return;
-    if (!$("studio") || $("studio").style.display === "none") return;
+    const studio = $("studio");
+    if (!studio || studio.style.display === "none") return;
     if (ev.code === "Space"){ ev.preventDefault(); studioTocarPausar(); }
-    else if (ev.key.toLowerCase() === "l"){ $("trLoop").click(); }
-    else if (ev.key === "ArrowRight"){ studioBuscar((Studio.faixas[0]?.el.currentTime || 0) + 2); }
-    else if (ev.key === "ArrowLeft"){ studioBuscar((Studio.faixas[0]?.el.currentTime || 0) - 2); }
-    else if (ev.key === "Home"){ studioBuscar(0); }
+    else if (ev.key.toLowerCase() === "l" && !ev.ctrlKey && !ev.metaKey){ $("trLoop").click(); }
+    // setas andam 5 s (o mesmo passo dos botões), Shift anda 1 s (ajuste fino)
+    else if (ev.key === "ArrowRight"){ ev.preventDefault(); studioPular(ev.shiftKey ? 1 : 5); }
+    else if (ev.key === "ArrowLeft"){ ev.preventDefault(); studioPular(ev.shiftKey ? -1 : -5); }
+    else if (ev.key === "Home"){ ev.preventDefault(); studioBuscar(0); }
+    else if (ev.key === "End"){ ev.preventDefault(); studioBuscar(Studio.duracao); }
+    else if (ev.key === "PageUp"){ ev.preventDefault(); studioIrCompasso(-1); }
+    else if (ev.key === "PageDown"){ ev.preventDefault(); studioIrCompasso(1); }
+    else if (ev.key === "Escape" && Studio.selecao){
+      Studio.selecao = null; studioDesenharSelecao();
+      if (Studio.loop){ Studio.loopA = 0; Studio.loopB = Studio.duracao || 0; atualizarBotaoLoop(); }
+    }
+    else if (ev.key.toLowerCase() === "m" && Studio.selecionada){ studioMute(Studio.selecionada); }
+    else if (ev.key.toLowerCase() === "s" && Studio.selecionada){ studioSolo(Studio.selecionada); }
     else if (ev.key === "Escape" && Studio.aoVivo){ $("studioAoVivo").click(); }
   });
+
   window.addEventListener("resize", () => {
-    if ($("studio").style.display === "none") return;
-    studioCalcularEscala(); studioDesenhar();
+    const studio = $("studio");
+    if (!studio || studio.style.display === "none") return;
+    calcEscala();
+    studioDesenhar();
   });
 }
 
@@ -2299,35 +3747,25 @@ function render(d){
     ["Tempo", d.segundos + "s"],
   ].map(([k,v]) => `<div class="kpi"><small>${k}</small><b>${escapeHtml(String(v))}</b></div>`).join("");
 
-  $("sections").innerHTML = d.secoes.length
+  const secoes = d.secoes || [];
+  $("sections").innerHTML = secoes.length
     ? `<div class="muted" style="font-size:12px;margin-top:14px">Estrutura</div>
-       <div class="muted">${d.secoes.map(s => `Seção ${s.rotulo} · ${fmtTime(s.inicio)}–${fmtTime(s.fim)}`).join(" · ")}</div>`
+       <div class="muted">${secoes.map(s => `Seção ${s.rotulo} · ${fmtTime(s.inicio)}–${fmtTime(s.fim)}`).join(" · ")}</div>`
     : "";
 
   renderHarmonia(d);
-
-  const tbody = $("files").querySelector("tbody");
-  tbody.innerHTML = "";
-  const AUDIO = new Set(["mp3", "wav", "flac", "m4a", "ogg", "opus", "aac"]);
-  for (const [stem, f] of Object.entries(d.arquivos)) {
-    const tr = document.createElement("tr");
-    // Nome curto do stem (Mix, Voz, Bateria...) — o nome completo do arquivo
-    // vai para o title, não para a célula: era ele que estourava a tabela.
-    const ext = (f.nome.split(".").pop() || "").toLowerCase();
-    tr.innerHTML = `<td>${escapeHtml(LABEL[stem] || stem)}</td>
-      <td class="nome-arquivo" title="${escapeHtml(f.nome)}">${escapeHtml(f.nome)}</td>
-      <td>${AUDIO.has(ext)
-        ? `<a href="${f.url}" target="_blank" rel="noopener">tocar</a> · <a href="${f.url}" download>baixar</a>`
-        : `<a href="${f.url}" target="_blank" rel="noopener">abrir</a>`}</td>`;
-    tbody.appendChild(tr);
-  }
+  // A tabela "Stem | Arquivo" foi substituída pela timeline: os mesmos
+  // arquivos, com onda, volume e mute. Os links de download vivem no menu
+  // Exportar. `#files` continua no DOM (oculto) porque o player antigo e
+  // alguns testes o consultam.
   studioMontar(d);
 
-  $("warns").innerHTML = d.avisos.length
+  $("warns").innerHTML = (d.avisos || []).length
     ? `<div class="muted" style="margin-top:14px;font-size:12px">Avisos</div>` +
       d.avisos.map(w => `<div class="warn">! ${escapeHtml(w)}</div>`).join("")
     : "";
-  $("warns").innerHTML += `<div style="margin-top:12px"><a href="${d.relatorio}" target="_blank" rel="noopener">abrir relatório completo</a></div>`;
+  if (d.relatorio) $("warns").innerHTML +=
+    `<div style="margin-top:12px"><a href="${d.relatorio}" target="_blank" rel="noopener">abrir relatório completo</a></div>`;
 }
 
 function mostrarCapa(url, destino){
@@ -2385,8 +3823,63 @@ $("bibRecolher").addEventListener("click", () => {
 });
 try { aplicarRecolhida(localStorage.getItem(CHAVE_RECOLHIDA) === "1", false); } catch (e) {}
 
+/** Tooltip dos controles: lê `data-dica`, posiciona e mostra na hora.
+ *
+ *  Delegação no documento (os controles das faixas nascem depois) e
+ *  `focusin`/`focusout` para quem navega por teclado.
+ */
+function ligarDicas(){
+  const balao = $("dicaFlutuante");
+  if (!balao) return;
+  let alvo = null;
+  const mostrar = (el) => {
+    const txt = el && (el.dataset.dica || el.getAttribute("title"));
+    if (!txt){ esconder(); return; }
+    // o title nativo não pode competir com o balão
+    if (el.getAttribute("title")){ el.dataset.tituloOriginal = el.getAttribute("title"); el.removeAttribute("title"); }
+    alvo = el;
+    balao.textContent = txt;
+    balao.classList.add("on");
+    balao.setAttribute("aria-hidden", "false");
+    const r = el.getBoundingClientRect();
+    balao.style.left = "0px"; balao.style.top = "0px";
+    const larg = balao.offsetWidth, alt = balao.offsetHeight;
+    let x = r.left + r.width / 2 - larg / 2;
+    let y = r.top - alt - 8;
+    if (y < 6) y = r.bottom + 8;                       // não sai pelo topo
+    x = Math.max(6, Math.min(window.innerWidth - larg - 6, x));
+    balao.style.left = Math.round(x) + "px";
+    balao.style.top = Math.round(y) + "px";
+  };
+  const esconder = () => {
+    balao.classList.remove("on");
+    balao.setAttribute("aria-hidden", "true");
+    // devolve o title para leitores de tela que dependem dele
+    if (alvo && alvo.dataset.tituloOriginal){
+      alvo.setAttribute("title", alvo.dataset.tituloOriginal);
+      delete alvo.dataset.tituloOriginal;
+    }
+    alvo = null;
+  };
+  document.addEventListener("pointerover", (ev) => {
+    const el = ev.target.closest && ev.target.closest("[data-dica], .tr-btn, .faixa-ms button, .ferr, .master");
+    if (el) mostrar(el); else if (!ev.target.closest || !ev.target.closest("#dicaFlutuante")) esconder();
+  });
+  document.addEventListener("pointerout", (ev) => {
+    const el = ev.target.closest && ev.target.closest("[data-dica], .tr-btn, .faixa-ms button, .ferr, .master");
+    if (el && el === alvo) esconder();
+  });
+  document.addEventListener("focusin", (ev) => {
+    const el = ev.target.closest && ev.target.closest("[data-dica]");
+    if (el) mostrar(el);
+  });
+  document.addEventListener("focusout", () => esconder());
+  document.addEventListener("scroll", esconder, true);
+}
+
 // Studio: botoes ligados uma vez; a montagem acontece a cada musica aberta.
 studioLigarBotoes();
+ligarDicas();
 try {
   if (localStorage.getItem("mrqvs.semLateral") === "1"){
     document.body.classList.add("sem-lateral");

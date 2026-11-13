@@ -111,8 +111,10 @@ class StudioData:
 
     #: segundos de cada batida
     batidas: list[float] = field(default_factory=list)
-    #: 4 ou 3
+    #: numerador da fórmula: 2, 3, 4, 6 ou 12
     compasso: int = 4
+    #: denominador da fórmula: 4 (semínima) ou 8 (colcheia, em 6/8 e 12/8)
+    denominador: int = 4
     compasso_confianca: float = 0.0
     #: {inicio, fim, compasso, acorde, confianca}
     acordes: list[dict] = field(default_factory=list)
@@ -126,6 +128,7 @@ class StudioData:
         return {
             "batidas": [round(b, 4) for b in self.batidas],
             "compasso": self.compasso,
+            "denominador": self.denominador,
             "compasso_confianca": self.compasso_confianca,
             "acordes": self.acordes,
             "secoes": self.secoes,

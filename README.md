@@ -17,6 +17,7 @@ ColdplayYellow-96BPM-apoio/               material de ensaio e metadados
 ├── audio_original.wav                    mix de referência
 ├── relatorio.md                          BPM, compasso, acordes, seções e avisos
 ├── projeto.json                          dados estruturados para o Studio e scripts
+├── edicoes.json                          edições do usuário (cifra, seções, compasso, mix)
 ├── projeto.m3u                           playlist na ordem dos stems
 ├── projeto.cue                           marcadores das seções detectadas
 └── log/                                  saída crua do backend

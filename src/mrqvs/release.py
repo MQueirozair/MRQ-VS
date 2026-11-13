@@ -44,6 +44,25 @@ def _version() -> str:
 VERSION = _version()
 
 
+def conferir_nome_do_pacote(nome: str, tag: str) -> None:
+    """Recusa publicar um zip com nome de plataforma diferente do conteúdo.
+
+    Existe por um erro real: `mrq-vs-0.1.19-linux-x64.zip` foi renomeado
+    para `windows-x64` na entrega. O arquivo abria, era um zip válido — só
+    não era o programa Windows que o nome prometia. Um nome errado é pior
+    que um build faltando, porque ninguém descobre até o usuário reclamar.
+    """
+    if not nome.startswith("mrq-vs-"):
+        return
+    for sistema in ("windows", "macos", "linux"):
+        if f"-{sistema}-" in nome and not tag.startswith(sistema):
+            raise SystemExit(
+                f"nome de pacote enganoso: {nome} diz {sistema}, mas o conteúdo é {tag}."
+                f"\nO pacote desta máquina ({tag}) não pode ser publicado como {sistema}."
+                f"\nPara o Windows completo, use o GitHub Actions (build.yml) ou windows/README.md."
+            )
+
+
 def _platform_tag() -> str:
     system = {"Windows": "windows", "Darwin": "macos", "Linux": "linux"}.get(platform.system(), platform.system().lower())
     machine = platform.machine().lower()
@@ -124,6 +143,18 @@ def build_zip(pyz: Path, tag: str, out_dir: Path | None = None) -> Path:
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write(pyz, pyz.name)
         zf.writestr("LEIA-ME.txt", guide_text(tag))
+        zf.writestr(
+            "QUAL-PACOTE-E-ESTE.txt",
+            "Este pacote contem apenas o arquivo .pyz (zipapp).\n"
+            "\n"
+            f"Ele NAO e o pacote Windows autonomo: exige Python 3.10+ instalado\n"
+            f"e roda no terminal (python mrq-vs-{VERSION}.pyz).\n"
+            "\n"
+            "O pacote Windows completo (Python embutido + numpy + soundfile +\n"
+            "ffmpeg + yt-dlp, abre com duplo clique no mrq-vs.exe) e gerado no\n"
+            "GitHub Actions pelo workflow .github/workflows/build.yml, ou pela\n"
+            "receita em windows/README.md.\n",
+        )
         for extra in ("LICENSE", "README.md"):
             if (ROOT / extra).is_file():
                 zf.write(ROOT / extra, extra)
@@ -148,6 +179,7 @@ def smoke_test(pyz: Path) -> list[str]:
         "mrqvs/web/icone-192.png",
         "mrqvs/web/icone-512.png",
         "mrqvs/biblioteca.py",
+        "mrqvs/mixdown.py",
     ):
         if obrigatorio not in nomes:
             problems.append(f"pacote sem {obrigatorio} (fora do .pyz)")
