@@ -1129,3 +1129,169 @@ def test_loop_reancora_o_relogio_do_trecho():
     # o relógio é reancorado em A (2 s), não em 4.1 s: passou de B e voltou
     assert r["voltouParaA"] == pytest.approx(2.0, abs=0.01)
     assert r["tempo"] < 3.0
+
+
+# --------------------------------------------------------------------------
+# 7. Compatibilidade com dados salvos pela versão anterior (0.1.23)
+# --------------------------------------------------------------------------
+def test_edicoes_da_versao_anterior_restauram_secoes_cifra_e_mix():
+    """Música salva pela 0.1.23 tem de reabrir com o trabalho do usuário.
+
+    O pacote de transferência trouxe um `edicoes.json` real dessa versão
+    (seções `Verso/Refrão/Final`, cifra C-G-Am-F, mix com volume por faixa).
+    A estrutura de lá usa `start/end/rotulo/nome` e `id/volume/pan/mudo/solo`;
+    se o carregamento só olhasse os nomes novos (`inicio`/`fim`), o usuário
+    reabriria a música e veria as seções detectadas no lugar das dele — que é
+    justamente "recuperar os acordes e a estrutura salvos".
+    """
+    dados = {
+        "titulo": "demomix", "nome_pasta": "demomix-96BPM",
+        "pasta": "/tmp/demomix-96BPM", "apoio": "/tmp/demomix-96BPM-apoio",
+        "bpm": 96, "tonalidade": "C maior", "compasso": 4, "denominador": 4,
+        "duracao": 24,
+        # o detector achou só duas seções; as do usuário são três e com nome
+        "secoes": [{"inicio": 0, "fim": 22.0, "rotulo": "A"},
+                   {"inicio": 22.0, "fim": 24.0, "rotulo": "B"}],
+        "estudio": {"batidas": [0, 0.625, 1.25], "compasso": 4, "denominador": 4,
+                    "bpm": 96, "tonalidade": "C maior", "duracao": 24,
+                    "secoes": [{"start": 0, "end": 22, "rotulo": "A", "nome": "A"},
+                               {"start": 22, "end": 24, "rotulo": "B", "nome": "B"}],
+                    "acordes": []},
+        "acordes": [{"inicio": 0.0, "fim": 2.5, "compasso": 1, "acorde": "C",
+                     "confianca": 0.2}],
+        "arquivos": {
+            "mix": {"nome": "demomix-96BPM_00_mix.wav", "audio": True,
+                    "url": "/api/file?p=/tmp/demomix-96BPM/00_mix.wav"},
+            "vocals": {"nome": "demomix-96BPM_01_vocals.wav", "audio": True,
+                       "url": "/api/file?p=/tmp/demomix-96BPM/01_vocals.wav"},
+        },
+    }
+    # conteúdo fiel ao edicoes.json que veio no pacote (0.1.23)
+    edicoes = {
+        "acordes": [
+            {"inicio": 0.0, "fim": 2.5, "compasso": 1, "acorde": "C", "confianca": 0.9},
+            {"inicio": 2.5, "fim": 5.0, "compasso": 2, "acorde": "G", "confianca": 0.9},
+            {"inicio": 5.0, "fim": 7.5, "compasso": 3, "acorde": "Am", "confianca": 0.9},
+        ],
+        "secoes": [
+            {"start": 0, "end": 10, "rotulo": "A", "nome": "Verso"},
+            {"start": 10, "end": 20, "rotulo": "B", "nome": "Refrão"},
+            {"start": 20, "end": 24, "rotulo": "C", "nome": "Final"},
+        ],
+        "compasso": 4, "denominador": 4, "bpm": 96, "tom": "C maior",
+        "transposicao": 0, "master": 85, "zoomOnda": 1, "alturaLinha": 0,
+        "mix": [
+            {"id": "vocals", "volume": 0.4, "pan": -0.25, "mudo": False,
+             "solo": True, "oculta": False},
+            {"id": "mix", "volume": 1, "pan": 0, "mudo": False, "solo": False,
+             "oculta": False},
+            {"id": "clique", "volume": 0.8, "pan": 0, "mudo": False,
+             "solo": False, "oculta": True},
+        ],
+    }
+    saida = _rodar_node(
+        f"""
+        const {{montar}} = require("./harness");
+        const edicoes = {json.dumps(edicoes)};
+        const fetch = (url) => String(url).startsWith("/api/edicoes")
+          ? Promise.resolve({{ok: true, json: () => Promise.resolve(edicoes)}})
+          : Promise.resolve({{ok: false, status: 404, json: () => Promise.resolve({{}})}});
+        const h = montar({json.dumps(dados)}, {{fetch}});
+        const S = h.Studio, sb = h.sandbox;
+        setTimeout(() => {{
+          const v = sb.faixaPorId("vocals"), mix = sb.faixaPorId("mix");
+          const cli = sb.faixaPorId("clique");
+          console.log(JSON.stringify({{
+            secoes: S.secoes.map(s => ({{nome: s.nome, start: s.start, end: s.end}})),
+            acordes: S.acordes.map(a => a.acorde),
+            compasso: S.compasso, denominador: S.denominador, bpm: S.bpm,
+            master: S.masterVolume,
+            vocals: v && {{volume: v.volume, pan: v.pan, solo: v.solo}},
+            mixMudo: mix ? mix.mudo : null,
+            cliqueOculta: cli ? !!S.ocultas["clique"] : null,
+            tomProjeto: S.tomProjeto, transposicao: S.transposicao,
+          }}));
+        }}, 60);
+        """
+    )
+    r = json.loads(saida.strip().splitlines()[-1])
+    # 1) as três seções do usuário, não as duas do detector
+    assert [s["nome"] for s in r["secoes"]] == ["Verso", "Refrão", "Final"]
+    assert r["secoes"][1]["start"] == pytest.approx(10.0)
+    assert r["secoes"][2]["end"] == pytest.approx(24.0)
+    # 2) a cifra salva vence a detecção (confiança 0.9, não 0.2)
+    assert r["acordes"] == ["C", "G", "Am"]
+    # 3) compasso, fórmula, BPM, tom e master
+    assert (r["compasso"], r["denominador"], r["bpm"]) == (4, 4, 96)
+    assert r["master"] == pytest.approx(0.85)
+    assert r["tomProjeto"] == "C maior" and r["transposicao"] == 0
+    # 4) mixagem: volume/pan/solo vêm do disco, e a faixa oculta continua no estado
+    assert r["vocals"]["volume"] == pytest.approx(0.4)
+    assert r["vocals"]["pan"] == pytest.approx(-0.25)
+    assert r["vocals"]["solo"] is True
+    assert r["mixMudo"] is False
+    assert r["cliqueOculta"] is True
+
+
+def test_marcadores_de_secao_e_audio_de_guia_sao_independentes():
+    """Seção é marcador; guia é áudio. Um não pode apagar o outro.
+
+    Requisito explícito: "marcadores não podem apagar/substituir áudio". O
+    teste monta com guia, apaga todas as seções (como o usuário faz ao limpar
+    a estrutura) e confere que a faixa Guia continua no mixer, tocável e com a
+    URL intacta; depois recria uma seção e confere que o áudio segue o mesmo.
+    """
+    dados = {
+        "titulo": "Guia", "nome_pasta": "Guia", "pasta": "/tmp/guia",
+        "apoio": "/tmp/guia-apoio", "bpm": 100, "tonalidade": "D maior",
+        "compasso": 4, "denominador": 4, "duracao": 12,
+        "clique": "/api/file?p=/tmp/guia-apoio/clique.wav",
+        "guia": "/api/file?p=/tmp/guia-apoio/guia.wav",
+        "estudio": {"batidas": [], "compasso": 4, "bpm": 100, "duracao": 12,
+                    "tonalidade": "D maior",
+                    "secoes": [{"start": 0, "end": 6, "rotulo": "A", "nome": "Verso"},
+                               {"start": 6, "end": 12, "rotulo": "B", "nome": "Refrão"}],
+                    "acordes": []},
+        "arquivos": {"mix": {"nome": "g_00_mix.wav", "audio": True,
+                             "url": "/api/file?p=/tmp/guia/00_mix.wav"}},
+    }
+    saida = _rodar_node(
+        f"""
+        const {{montar}} = require("./harness");
+        const h = montar({json.dumps(dados)});
+        const S = h.Studio, sb = h.sandbox;
+        const guia = sb.faixaPorId("guia");
+        const antes = {{secoes: S.secoes.length, temGuia: !!guia,
+                       url: guia ? guia.el.src : null, nome: guia ? guia.nome : null}};
+        // o usuário apaga todas as seções (limpar a estrutura, sem tocar no áudio)
+        S.secoes = [];
+        sb.studioDesenharSecoes();
+        sb.aplicarMix();
+        const semSecoes = {{secoes: S.secoes.length, temGuia: !!sb.faixaPorId("guia"),
+                           audivel: !!guia && sb.audivel(guia, false),
+                           ganho: guia && guia.ganho ? guia.ganho.gain.value : null,
+                           marcas: (sb.faixaPorId("guia").trilha.querySelectorAll(".secao-bloco") || []).length}};
+        // e cria uma seção nova: continua a mesma faixa, mesmo áudio
+        S.secoes.push({{start: 2, end: 4, rotulo: "C", nome: "Ponte"}});
+        sb.studioDesenharSecoes();
+        const depois = {{secoes: S.secoes.length,
+                         mesmoAudio: sb.faixaPorId("guia").el === guia.el,
+                         url: sb.faixaPorId("guia").el.src,
+                         marcas: sb.faixaPorId("guia").trilha.querySelectorAll(".secao-bloco").length}};
+        console.log(JSON.stringify({{antes, semSecoes, depois}}));
+        """
+    )
+    r = json.loads(saida.strip().splitlines()[-1])
+    assert r["antes"]["secoes"] == 2 and r["antes"]["temGuia"] is True
+    assert r["antes"]["url"] == "/api/file?p=/tmp/guia-apoio/guia.wav"
+    # apagar as seções não desmonta a Guia nem a cala
+    assert r["semSecoes"]["temGuia"] is True
+    assert r["semSecoes"]["secoes"] == 0
+    assert r["semSecoes"]["audivel"] is True
+    assert r["semSecoes"]["ganho"] == pytest.approx(1.0)
+    assert r["semSecoes"]["marcas"] == 0
+    # criar seção nova desenha a marca na trilha da Guia, sem trocar o áudio
+    assert r["depois"]["secoes"] == 1
+    assert r["depois"]["marcas"] == 1
+    assert r["depois"]["mesmoAudio"] is True
+    assert r["depois"]["url"] == "/api/file?p=/tmp/guia-apoio/guia.wav"
