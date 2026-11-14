@@ -643,3 +643,51 @@ def test_clique_sintetizado_respeita_mudo_e_solo():
     assert info["sintetica"] is True and info["temEl"] is False
     assert info["clique"] > 0     # solo no clique: ele toca
     assert info["vocais"] == 0    # e a banda cala
+
+
+def test_mover_faixa_reordena_painel_e_timeline_juntos():
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        const vocais = S.todasAsFaixas().find(f => f.id === "vocals");
+        S.studioMoverFaixa(vocais, -1);   // sobe uma posição
+        await esperar();
+        const painel = Array.from(env.doc.getElementById("painelFaixas").children)
+          .map(el => el.dataset.id);
+        const grade = Array.from(env.doc.getElementById("gradeFaixas").children)
+          .map(el => el.dataset.id);
+        S.__info = {painel, grade};
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    # painel e timeline têm de contar a MESMA história, na MESMA ordem
+    assert info["painel"] == info["grade"], (info["painel"], info["grade"])
+    # os vocais subiram: não são mais os últimos da lista de áudio
+    assert info["painel"].index("vocals") < len(info["painel"]) - 1
+
+
+def test_deslocar_e_fade_da_faixa_vao_para_o_projeto():
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        const vocais = S.todasAsFaixas().find(f => f.id === "vocals");
+        const inicial = vocais.offset;          // 0,25 (veio do projeto)
+        S.studioDeslocarFaixa(vocais, 0.05);    // +50 ms SOBRE o valor atual
+        S.studioFadeFaixa(vocais, "out", 0.4);
+        const depois = vocais.offset, fadeOut = vocais.fadeOut;
+        S.studioDeslocarFaixa(vocais, 0, true); // zera
+        S.studioFadeFaixa(vocais, "todos", 0);
+        S.__info = {inicial, depois, fadeOut, zerado: vocais.offset, semFade: vocais.fadeOut};
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert abs(info["inicial"] - 0.25) < 1e-9       # lido do projeto
+    assert abs(info["depois"] - 0.30) < 1e-9        # deslocou a partir dele
+    assert info["fadeOut"] == 0.4
+    assert info["zerado"] == 0 and info["semFade"] == 0

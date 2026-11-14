@@ -3397,6 +3397,54 @@ function studioSelecionar(f){
     el.classList.toggle("selecionada", el.dataset.id === f.id));
 }
 
+/** Sobe/desce a faixa na lista (painel + timeline andam juntos).
+ *
+ *  A ordem fica em `data-ordem`, e `studioReordenarDOM` aplica nos dois
+ *  contêineres de uma vez: sem isso o painel e a timeline discordavam, e o
+ *  usuário arrastava o fader da faixa errada.
+ */
+function studioMoverFaixa(f, direcao){
+  const ordenadas = todasAsFaixas().slice().sort(
+    (a, b) => (Number(a.linha.dataset.ordem) || 0) - (Number(b.linha.dataset.ordem) || 0));
+  const i = ordenadas.indexOf(f);
+  const j = i + (direcao > 0 ? 1 : -1);
+  if (i < 0 || j < 0 || j >= ordenadas.length) return;
+  ordenadas.splice(j, 0, ordenadas.splice(i, 1)[0]);
+  ordenadas.forEach((faixa, k) => {
+    faixa.linha.dataset.ordem = String(k);
+    faixa.trilha.dataset.ordem = String(k);
+  });
+  studioReordenarDOM();
+  studioDesenharTrilhas();
+  marcarSalvo();
+  studioSalvarEdicoes();
+}
+
+/** Desloca a faixa no tempo (positivo = entra mais tarde). */
+function studioDeslocarFaixa(f, delta, zerar){
+  f.offset = zerar ? 0 : Math.max(0, Math.round(((Number(f.offset) || 0) + delta) * 1000) / 1000);
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = f.offset
+    ? `${f.nome}: deslocada ${(f.offset * 1000).toFixed(0)} ms`
+    : `${f.nome}: deslocamento zerado`;
+  if (Studio.tocando) studioBuscar(Studio.tempo);  // aplica já, sem esperar o play
+  marcarSalvo();
+  studioSalvarEdicoes();
+}
+
+/** Fade de entrada/saída da faixa (aplicado no render, não ao vivo). */
+function studioFadeFaixa(f, qual, segundos){
+  const valor = Math.max(0, Number(segundos) || 0);
+  if (qual === "in" || qual === "todos") f.fadeIn = valor;
+  if (qual === "out" || qual === "todos") f.fadeOut = valor;
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = valor
+    ? `${f.nome}: fade de ${qual === "out" ? "saída" : (qual === "in" ? "entrada" : "entrada e saída")} ${valor}s (aplicado ao exportar)`
+    : `${f.nome}: sem fades`;
+  marcarSalvo();
+  studioSalvarEdicoes();
+}
+
 function studioMenuFaixa(f){
   const acoes = [
     ["Silenciar / reativar (M)", () => studioMute(f)],
@@ -3405,6 +3453,14 @@ function studioMenuFaixa(f){
     ["Volume 60%", () => { f.volume = 0.6; const v = f.linha.querySelector(".faixa-vol"); if (v) v.value = 60; rotuloVolume(f); aplicarMix(); marcarSalvo(); }],
     ["Centralizar pan", () => { f.pan = 0; const p = f.linha.querySelector(".faixa-pan"); if (p){ p.value = 0; p.dataset.centro = "1"; } rotuloPan(f); aplicarMix(); marcarSalvo(); }],
     [(Studio.ocultas[f.id] ? "Mostrar na timeline" : "Ocultar da timeline"), () => studioOcultarFaixa(f)],
+    ["Subir na lista", () => studioMoverFaixa(f, -1)],
+    ["Descer na lista", () => studioMoverFaixa(f, +1)],
+    ["Alinhar: adiantar 10 ms", () => studioDeslocarFaixa(f, -0.01)],
+    ["Alinhar: atrasar 10 ms", () => studioDeslocarFaixa(f, +0.01)],
+    ["Zerar deslocamento", () => studioDeslocarFaixa(f, 0, true)],
+    ["Fade de entrada 0,5 s", () => studioFadeFaixa(f, "in", 0.5)],
+    ["Fade de saída 0,5 s", () => studioFadeFaixa(f, "out", 0.5)],
+    ["Sem fades", () => studioFadeFaixa(f, "todos", 0)],
   ];
   const antigo = document.getElementById("menuFaixaPop");
   if (antigo) antigo.remove();
