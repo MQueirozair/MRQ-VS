@@ -235,3 +235,86 @@ chegar no fim); contador `N faixas · K à vista` num `#painelContagem` próprio
   existe mais no CSS.
 
 Suíte: **170 passed** (3 execuções), ruff limpo.
+
+## 8. Rodada 0.1.27 — as duas capturas novas
+
+Ele mandou de novo o recorte da barra lateral (foto 1) e o da lista de faixas
+(foto 3). Desta vez as duas causas são independentes e as duas ficaram
+cobertas por teste.
+
+### 8.1 "Nada separado ainda" com música no disco
+
+**Sintoma (foto 1):** a barra lateral dizia `—` no contador do cabeçalho,
+"Nada separado ainda" na lista, e a música (`Louvor Demo 7 faixas`) não
+aparecia. A foto 2 mostra o estado desejado: `1 música`, `Minhas músicas 1 ⌄`
+e o item com `96 BPM · C maior · 7 stems`.
+
+**Causa:** o HTML é servido **antes** de `/api/biblioteca` responder, e o
+`.bib-vazio` com "Nada separado ainda" já vinha no documento. Quem olhava a
+tela nesse intervalo — ou abria o app com o servidor ainda subindo — via a
+mensagem de "lista vazia" com a música existindo. Pior: qualquer falha de
+leitura (`fetch` rejeitado) também caía no mesmo texto, como se o disco
+estivesse vazio.
+
+**Correção:** o estado inicial passou a ser `bib-carregando` ("Procurando
+músicas no disco…", com um giro discreto que respeita
+`prefers-reduced-motion`). Agora são quatro estados distinguíveis:
+
+| estado | lista | `#bibContagem` | `#conta` |
+|---|---|---|---|
+| carregando | "Procurando músicas no disco…" | vazio | — |
+| vazio de verdade | "Nada separado ainda." | vazio | — |
+| falha de leitura | "Não consegui ler a pasta das músicas…" | vazio | — |
+| com músicas | um item por música | `1` | `1 música` |
+
+O contador também ganhou cápsula própria: antes ele colava no texto e saía
+"1música".
+
+### 8.2 Só a primeira faixa aparecia na lista
+
+**Sintoma (foto 3):** a lista mostrava o fim da faixa anterior, a linha
+*Guitarra* e o transporte logo abaixo. As demais não apareciam.
+
+**Causa:** a altura de linha era **fixa** (76 px, ou 72/66 px por breakpoint) e
+o que não coubesse ia para a rolagem. Numa janela baixa isso significava 3 de 7
+faixas — o usuário lê como "as faixas sumiram".
+
+**Correção:** o cálculo passou a ser de trás para frente. Sem preferência
+manual, o app desce um degrau por vez até a última faixa caber:
+
+    76 → 66 → 54 → 44 → 38 → 30 px
+
+O último degrau é o **modo mínimo**: a linha vira uma faixa horizontal
+compacta (nome, M/S/⋯, VOL e PAN na mesma linha, rótulos e medidor fora de
+cena), ~30 px por linha. Se nem isso couber, a rolagem continua — mas agora com
+degradê e o contador `N faixas · K à vista` dizendo isso com clareza.
+
+O degradê deixou de olhar o `scrollHeight` e passou a usar **o mesmo critério
+do contador** (`total × altura > clientHeight`): antes acendia com as faixas já
+encaixadas, apontando conteúdo escondido que não existia.
+
+Botão novo **Tudo** ao lado do slider de altura: um clique zera a preferência
+manual, reencaixa todas as faixas e informa em `#ferrDica` se coube tudo. A
+preferência manual continua respeitada — quem estica as linhas de propósito
+escolhe rolar.
+
+**Faixas à vista por janela** (9 faixas do demo, altura útil do painel):
+
+| Janela | altura útil | antes (76 px) | agora |
+|---|---|---|---|
+| 768 px | 329 px | 4 | **9** (30 px, modo mínimo) |
+| 900 px | 461 px | 6 | **9** (44 px) |
+| 1080 px | 641 px | 8 | **9** (66 px) |
+| janela baixa | 200 px | 2 | 6 de 9 + rolagem avisada |
+
+O recálculo não depende mais de quem chamou: `studioAtualizarRolagemPainel()`
+reaplica a altura antes de medir, então redimensionar a janela reencaixa as
+faixas sem esperar outro evento.
+
+**Testes:** `test_biblioteca_mostra_carregando_antes_de_listar`,
+`test_todas_as_faixas_cabem_na_tela_sem_rolagem` e
+`test_botao_tudo_volta_ao_automatico_e_anuncia_o_resultado`. Dois testes
+antigos que exigiam altura mínima de 72 px foram atualizados — eles travavam
+justamente o comportamento que o usuário reclamou.
+
+Suíte: **173 passed**, ruff limpo.

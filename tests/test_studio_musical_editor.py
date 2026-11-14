@@ -449,10 +449,13 @@ def test_faixas_ordem_canonica_ids_unicos_e_altura_sem_corte():
     assert len(outros) == 3 and len(set(outros)) == 3
     # painel e grade na MESMA ordem, item por item
     assert r["painel"] == r["grade"]
-    # altura suficiente para nome + M/S + VOL + PAN + medidor
+    # Alturas uniformes entre painel e grade. O PISO deixou de ser 72 px: o app
+    # agora encolhe as linhas para caber todas as faixas (pedido do usuário),
+    # então o piso é 30 px (modo mínimo, uma linha).
     assert all(h == r["alturasPainel"][0] for h in r["alturasPainel"])
     assert all(h == r["alturasTrilha"][0] for h in r["alturasTrilha"])
-    assert float(r["alturasPainel"][0].replace("px", "")) >= 72
+    altura = float(r["alturasPainel"][0].replace("px", ""))
+    assert 30 <= altura <= 140
 
 
 def test_rolagem_vertical_sincronizada_nos_dois_sentidos():
@@ -1479,10 +1482,12 @@ def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
         const caixa = doc.getElementById("studioPainel");
         const contagem = doc.getElementById("painelContagem");
         const base = sb.alturaBase();
-        // 3 faixas visíveis num painel de 228 px = conteúdo maior que a janela
-        painel.clientHeight = base * 3;
-        painel.scrollHeight = base * 7;
+        // Painel baixo de propósito (90 px): nem com 30 px por linha as 7
+        // faixas cabem, então o degradê e o contador de "à vista" aparecem.
+        painel.clientHeight = 90;
+        painel.scrollHeight = 490;
         painel.scrollTop = 0;
+        sb.studioSincronizarAlturas();
         sb.studioAtualizarRolagemPainel();
         const noTopo = {{temMais: caixa.classList.contains("tem-mais"),
                          texto: contagem.textContent, dica: contagem.title}};
@@ -1500,3 +1505,219 @@ def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
     assert r["noTopo"]["texto"] == "7 faixas · 3 à vista"
     assert "abaixo" in r["noTopo"]["dica"]
     assert r["noFim"]["temMais"] is False
+
+
+def _rodar_node_assert(codigo):
+    """Roda um script node que faz as próprias asserções.
+
+    O minidom do harness não extrai texto de `innerHTML` (guarda só a string),
+    então quem compara texto de mensagem é o node, sobre `innerHTML`, onde a
+    mensagem realmente está; o Python cuida da estrutura.
+    """
+    return _rodar_node("""
+        const assert = require("assert");
+        """ + codigo)
+
+
+def test_biblioteca_mostra_carregando_antes_de_listar():
+    """Foto 1: a barra lateral dizia "Nada separado ainda" com música no disco.
+
+    O HTML é servido antes da resposta de /api/biblioteca, então o estado
+    inicial não pode ser "vazio" — tem que ser "carregando". E falha de leitura
+    não pode virar "nada separado", senão o usuário acha que perdeu as músicas.
+    """
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'id="bibCarregando"' in html
+    assert "bib-carregando" in html
+    # o texto de vazio não pode estar no HTML inicial da lista
+    inicial = html.split('id="bibLista"', 1)[1].split("</div>\n  </div>", 1)[0]
+    assert "Nada separado ainda" not in inicial
+    assert "Procurando músicas" in inicial
+
+    _rodar_node_assert(
+        """
+        const {montar} = require("./harness");
+        const h = montar();
+        const sb = h.sandbox, doc = h.doc;
+        const caixa = doc.getElementById("bibLista");
+        const contagem = doc.getElementById("bibContagem");
+        const conta = doc.getElementById("conta");
+
+        // servidor fora do ar: mensagem de falha, nunca "vazio"
+        sb.desenharBiblioteca(true);
+        assert.ok(caixa.innerHTML.includes("Não consegui ler"), caixa.innerHTML);
+        assert.ok(!caixa.innerHTML.includes("Nada separado"), caixa.innerHTML);
+        assert.strictEqual(contagem.textContent, "");
+        assert.strictEqual(conta.textContent, "—");
+
+        // lista vazia de verdade: aí sim o texto de boas-vindas
+        sb.desenharBiblioteca(false);
+        assert.ok(caixa.innerHTML.includes("Nada separado ainda"), caixa.innerHTML);
+        assert.ok(!caixa.innerHTML.includes("Não consegui ler"));
+        """
+    )
+
+    # Caso foto 2: com uma música no disco, a lista tem item clicável, o
+    # contador diz "1 música" e o cabeçalho fecha com "1". Usa `fetch` de
+    # verdade (stubado) para exercitar carregarBiblioteca() inteiro.
+    r2 = json.loads(
+        _rodar_node_assert(
+            """
+            const {montar} = require("./harness");
+            const resposta = {versoes: [{
+              id: "/tmp/Louvor-Demo", pasta: "/tmp/Louvor-Demo",
+              titulo: "Louvor Demo", bpm: 96, tom: "C maior",
+              duracao: 210, salvo_em: 1763000000, stems: 7, origem: "separacao",
+            }]};
+            const h = montar(null, {fetch: (url) => Promise.resolve({
+              ok: true, status: 200,
+              json: () => Promise.resolve(url.includes("biblioteca") ? resposta : {}),
+            })});
+            const sb = h.sandbox, doc = h.doc;
+            sb.carregarBiblioteca().then(() => {
+              const caixa = doc.getElementById("bibLista");
+              const item = caixa.children[0];
+              console.log(JSON.stringify({
+                itens: caixa.children.length,
+                id: item && item.dataset.id,
+                classe: item && item.className,
+                rotulo: item && item.innerHTML,
+                contagem: doc.getElementById("bibContagem").textContent,
+                conta: doc.getElementById("conta").textContent,
+              }));
+            }).catch((e) => { console.log(JSON.stringify({erro: String(e)})); });
+            """
+        ).strip().splitlines()[-1]
+    )
+    assert "erro" not in r2, r2
+    assert r2["itens"] == 1, r2
+    assert r2["id"] == "/tmp/Louvor-Demo"
+    assert r2["classe"] == "bib-item"
+    # o item mostra o que a foto 2 pede: BPM, tom e nº de stems
+    assert "Louvor Demo" in r2["rotulo"]
+    assert "96 BPM" in r2["rotulo"]
+    assert "7 stems" in r2["rotulo"]
+    assert r2["contagem"] == "1"
+    assert r2["conta"] == "1 música"
+
+
+def test_todas_as_faixas_cabem_na_tela_sem_rolagem():
+    """Foto 3: só a primeira faixa aparecia e o resto ficava fora da vista.
+
+    O cálculo agora é de trás para frente: cabem todas na altura preferida? se
+    não, desce um degrau; no fim, o modo mínimo é uma linha única de 30 px —
+    é o que faz um projeto grande caber numa tela só.
+    """
+    dados = _dados_com_muitos_stems()
+    r = json.loads(
+        _rodar_node_assert(
+            f"""
+            const {{montar}} = require("./harness");
+            const h = montar();
+            const sb = h.sandbox, doc = h.doc;
+            sb.studioMontar({json.dumps(dados)});
+            const painel = doc.getElementById("painelFaixas");
+            const caixaPainel = doc.getElementById("studioPainel");
+            const contagem = doc.getElementById("painelContagem");
+            const total = painel.querySelectorAll(".faixa").length;
+            const casos = {{}};
+            const medir = (nome, altura) => {{
+              painel.clientHeight = altura;
+              // conteúdo bem maior que a janela: o degradê tem limiar de 2 px
+              painel.scrollHeight = altura + 400;
+              painel.scrollTop = 0;
+              sb.studioSincronizarAlturas();
+              sb.studioAtualizarRolagemPainel();
+              const usada = parseFloat(painel.children[0].style.height);
+              casos[nome] = {{
+                usada, totalPx: usada * total, cabe: usada * total <= altura,
+                minima: painel.children[0].classList.contains("minima"),
+                texto: contagem.textContent,
+                temMais: caixaPainel.classList.contains("tem-mais"),
+              }};
+            }};
+            // alturas relativas ao número real de faixas do fixture: assim o
+            // teste não depende de 7, 9 ou 12 linhas
+            medir("amplo", total * 200);
+            medir("apertado", total * 60);
+            medir("minimo", total * 32);
+            medir("impossivel", 90);
+            console.log(JSON.stringify({{total, casos}}));
+            """
+        ).strip().splitlines()[-1]
+    )
+    total = r["total"]
+    c = r["casos"]
+    assert total >= 7
+
+    # espaço de sobra: nada encolhe, todas à vista, sem degradê
+    assert c["amplo"]["usada"] * total <= total * 200
+    assert c["amplo"]["texto"] == f"{total} faixas"
+    assert c["amplo"]["temMais"] is False
+
+    # painel apertado: encolhe e AINDA mostra todas (o pedido do usuário)
+    assert c["apertado"]["cabe"] is True
+    assert c["apertado"]["texto"] == f"{total} faixas"
+    assert c["apertado"]["temMais"] is False
+
+    # painel muito baixo: modo mínimo de uma linha, e continua cabendo
+    assert c["minimo"]["minima"] is True
+    assert c["minimo"]["usada"] == 30
+    assert c["minimo"]["cabe"] is True
+    assert c["minimo"]["temMais"] is False
+
+    # caso impossível: rolagem honesta + contador dizendo que há mais abaixo
+    assert c["impossivel"]["cabe"] is False
+    assert "à vista" in c["impossivel"]["texto"]
+    assert c["impossivel"]["temMais"] is True
+
+
+def test_botao_tudo_volta_ao_automatico_e_anuncia_o_resultado():
+    """O usuário precisa de um caminho de um clique para "ver todas"."""
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    assert 'id="fFaixasTudo"' in html
+    dados = _dados_com_muitos_stems()
+    r = json.loads(
+        _rodar_node_assert(
+            f"""
+            const {{montar}} = require("./harness");
+            const h = montar();
+            const sb = h.sandbox, doc = h.doc;
+            sb.studioMontar({json.dumps(dados)});
+            const painel = doc.getElementById("painelFaixas");
+            const contagem = doc.getElementById("painelContagem");
+            const total = painel.querySelectorAll(".faixa").length;
+            // altura exata para todas caberem no modo mínimo (30 px por linha)
+            painel.clientHeight = total * 30;
+            painel.scrollHeight = 900;
+            painel.scrollTop = 0;
+
+            // o usuário esticou as linhas: não cabe tudo
+            sb.Studio.alturaLinha = 120;
+            sb.studioSincronizarAlturas();
+            sb.studioAtualizarRolagemPainel();
+            const antes = {{usada: parseFloat(painel.children[0].style.height),
+                            cabeTudo: sb.Studio._cabeTudo,
+                            texto: contagem.textContent}};
+            assert.strictEqual(antes.usada, 120);
+            assert.strictEqual(antes.cabeTudo, false);
+            assert.ok(antes.texto.includes("à vista"), antes.texto);
+
+            // um clique em "Tudo": volta ao automático e as faixas aparecem
+            sb.Studio.alturaLinha = 0;
+            sb.studioSincronizarAlturas();
+            sb.studioAtualizarRolagemPainel();
+            const depois = {{usada: parseFloat(painel.children[0].style.height),
+                             cabeTudo: sb.Studio._cabeTudo,
+                             texto: contagem.textContent,
+                             minima: painel.children[0].classList.contains("minima")}};
+            assert.ok(depois.usada < antes.usada, depois.usada);
+            assert.strictEqual(depois.cabeTudo, true);
+            assert.strictEqual(depois.texto, total + " faixas");
+            console.log(JSON.stringify({{total, antes, depois}}));
+            """
+        ).strip().splitlines()[-1]
+    )
+    assert r["antes"]["cabeTudo"] is False
+    assert r["depois"]["cabeTudo"] is True
+    assert r["depois"]["usada"] * r["total"] <= r["total"] * 30
