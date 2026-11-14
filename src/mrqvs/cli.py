@@ -6,6 +6,11 @@ Exemplos que cobrem o uso real:
     mrq-vs link --format mp3 --stems vocals,drums,bass,other
     mrq-vs link --model htdemucs_6s --format mp4 --normalize
     mrq-vs arquivo.m4a --bpm 96 --out C:\\Musica
+    mrq-vs projeto lista minhatrilha/              # faixas do projeto multitrack
+    mrq-vs projeto mix minhatrilha/ --destino mix.wav
+    mrq-vs projeto exportar minhatrilha/            # cifra, MIDI, letra e ficha
+    mrq-vs projeto transpor minhatrilha/ --semitons -2
+    mrq-vs projeto letra minhatrilha/ letra.txt     # alinha a letra ao áudio
     mrq-vs doctor                                 # o que está instalado
     mrq-vs stems                                  # catálogo de stems
     mrq-vs serve                                  # interface no navegador
@@ -162,11 +167,212 @@ def plan_text(options: project.ProjectOptions) -> str:
     return "\n".join(lines)
 
 
+def cmd_projeto(argv: list[str]) -> int:
+    """`mrq-vs projeto` — edita e exporta o multitrack sem abrir a interface.
+
+    Por que existe: quem usa terminal quer exportar a cifra em lote, gerar o
+    MIDI para a DAW ou renderizar o mix com as edições já salvas. Todas as
+    ações aqui chamam o MESMO módulo que a tela usa (`projeto_vs`), então não
+    há um segundo caminho que possa divergir.
+    """
+    import json as _json
+
+    from . import letra as letra_mod
+    from . import projeto_vs as pv
+
+    parser = argparse.ArgumentParser(
+        prog="mrq-vs projeto",
+        description="Projeto multitrack: listar faixas, mixar, exportar cifra/MIDI e letra.",
+    )
+    parser.add_argument(
+        "acao",
+        nargs="?",
+        default="lista",
+        choices=["lista", "mix", "stems", "exportar", "transpor", "corrigir", "letra", "marcar"],
+    )
+    parser.add_argument("pasta", nargs="?", help="pasta do projeto (a de áudio ou a -apoio)")
+    parser.add_argument("--destino", default="", help="arquivo/pasta de saída (mix e stems)")
+    parser.add_argument("--semitons", type=int, default=0, help="transposição da cifra (só acordes)")
+    parser.add_argument("--compasso", default="", help="corrige a fórmula: 4/4, 6/8, 3/4...")
+    parser.add_argument("--tempo", type=float, default=None, help="tempo (s) para o marcador")
+    parser.add_argument("--nome", default="", help="nome do marcador")
+    parser.add_argument("--letra", default="", help="arquivo .lrc/.srt/.txt com a letra (ação letra)")
+    parser.add_argument("--json", action="store_true", help="imprime o resultado em JSON")
+    args = parser.parse_args(argv)
+
+    if not args.pasta:
+        print("erro: informe a pasta do projeto", file=sys.stderr)
+        return 2
+
+    pasta = Path(args.pasta).expanduser()
+    if not pasta.is_dir():
+        print(f"erro: pasta não encontrada: {pasta}", file=sys.stderr)
+        return 2
+
+    def abrir() -> "pv.ProjetoVS":
+        # aceita tanto a pasta de áudio quanto a `-apoio`: o usuário não
+        # deveria precisar saber qual das duas tem o arquivo de projeto
+        candidatos = [pasta]
+        if (pasta.parent / f"{pasta.name}-apoio").is_dir():
+            candidatos.insert(0, pasta.parent / f"{pasta.name}-apoio")
+        for candidata in candidatos:
+            if (candidata / pv.ARQUIVO_PROJETO).is_file():
+                return pv.ProjetoVS.carregar(candidata)
+        raise pv.ProjetoInvalido(
+            f"não há {pv.ARQUIVO_PROJETO} em {pasta} nem em {pasta.name}-apoio. "
+            "Separe a música primeiro (mrq-vs <fonte>) ou abra-a uma vez na interface."
+        )
+
+    try:
+        projeto = abrir()
+    except pv.ProjetoInvalido as exc:
+        print(f"erro: {exc}", file=sys.stderr)
+        return 1
+
+    if args.acao == "lista":
+        print(f"{projeto.titulo or projeto.pasta.name} — {projeto.artista or 'artista desconhecido'}")
+        print(
+            f"  {projeto.mapa.bpm:.0f} BPM · {projeto.mapa.numerador}/{projeto.mapa.denominador}"
+            f" · {projeto.mapa.total_compassos()} compassos · "
+            f"{projeto.mapa.total_compassos() and 'grade ' + ('detectada' if projeto.mapa.preciso else 'extrapolada')}"
+        )
+        for faixa in projeto.faixas_ordenadas:
+            estado = "mudo" if faixa.mudo else ("solo" if faixa.solo else "    ")
+            existe = "ok " if projeto.caminho_da_faixa(faixa) else "AUSENTE"
+            print(
+                f"  {faixa.ordem:>2} {estado} {existe} {faixa.nome:<14} "
+                f"vol {faixa.volume * 100:3.0f}%  pan {faixa.pan:+.1f}  {faixa.arquivo}"
+            )
+        if projeto.marcadores:
+            print("  marcadores: " + ", ".join(f"{m.nome}@{m.tempo:.1f}s" for m in projeto.marcadores))
+        avisos = [a for a in projeto.avisos if a][:5]
+        if avisos:
+            print("  avisos:")
+            for aviso in avisos:
+                print(f"    ! {aviso}")
+        return 0
+
+    if args.acao == "mix":
+        destino = Path(args.destino) if args.destino else None
+        try:
+            resultado = projeto.renderizar(destino=destino)
+        except (pv.ProjetoInvalido, OSError) as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            return 1
+        print(
+            f"mix: {resultado['arquivo']} ({resultado['duracao']}s, "
+            f"{len(resultado['faixas'])} faixas, pico {resultado['pico_saida']})"
+        )
+        if resultado["ausentes"]:
+            print("aviso: faixas sem arquivo: " + ", ".join(resultado["ausentes"]), file=sys.stderr)
+        return 0
+
+    if args.acao == "stems":
+        pasta_saida = Path(args.destino) if args.destino else None
+        try:
+            resultado = projeto.renderizar_stems(pasta=pasta_saida)
+        except (pv.ProjetoInvalido, OSError) as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            return 1
+        for chave, caminho in resultado["arquivos"].items():
+            print(f"  {chave}: {caminho}")
+        return 0
+
+    if args.acao == "exportar":
+        try:
+            arquivos = projeto.exportar_apoio()
+        except OSError as exc:
+            print(f"erro: {exc}", file=sys.stderr)
+            return 1
+        projeto.salvar()
+        for chave, caminho in sorted(arquivos.items()):
+            print(f"  {chave}: {caminho}")
+        return 0
+
+    if args.acao == "transpor":
+        if not args.semitons:
+            print("erro: informe --semitons (ex.: -2 ou +3)", file=sys.stderr)
+            return 2
+        # `% 12`: transpor -2 é o mesmo que +10 no papel. O áudio NÃO muda
+        # aqui — é só a cifra (o aviso da tela e a ficha dizem isso).
+        projeto.cifra = projeto.cifra_obj().transposta(args.semitons % 12).as_dict()
+        projeto.salvar()
+        cifra = projeto.cifra_obj()
+        print(
+            f"cifra transposta {args.semitons:+d} semitons — tom: {cifra.tom_exibido or '?'}"
+            "  (o áudio não foi alterado; use o editor para ouvir transposto)"
+        )
+        print(cifra.resumo)
+        return 0
+
+    if args.acao == "corrigir":
+        if not args.compasso:
+            print("erro: informe --compasso 6/8, por exemplo", file=sys.stderr)
+            return 2
+        try:
+            num, den = (int(p) for p in args.compasso.replace("/", " ").split())
+        except ValueError:
+            print("erro: use o formato N/D (4/4, 3/4, 6/8, 7/8)", file=sys.stderr)
+            return 2
+        projeto.mapa = projeto.mapa.com_formula(num, den)
+        projeto.salvar()
+        print(f"fórmula corrigida para {num}/{den} ({projeto.mapa.total_compassos()} compassos)")
+        return 0
+
+    if args.acao == "marcar":
+        if args.tempo is None:
+            print("erro: informe --tempo em segundos", file=sys.stderr)
+            return 2
+        marcador = projeto.marcar(args.tempo, args.nome or "")
+        projeto.salvar()
+        print(f"marcador: {marcador.nome} @ {marcador.tempo:.2f}s (compasso {marcador.compasso})")
+        return 0
+
+    # letra
+    if not args.letra:
+        print("erro: informe o arquivo de letra (.lrc, .srt ou .txt)", file=sys.stderr)
+        return 2
+    origem = Path(args.letra).expanduser()
+    try:
+        if origem.is_file():
+            letra = letra_mod.ler_arquivo(origem)
+        else:
+            print(f"erro: arquivo de letra não encontrado: {origem}", file=sys.stderr)
+            return 2
+    except letra_mod.LetraInvalida as exc:
+        print(f"erro: {exc}", file=sys.stderr)
+        return 2
+    audio = next(
+        (projeto.caminho_da_faixa(f) for f in projeto.faixas if f.id in ("vocals", "mix") and projeto.caminho_da_faixa(f)),
+        None,
+    )
+    if audio is not None:
+        import soundfile as sf
+
+        dados, taxa = sf.read(str(audio), dtype="float32", always_2d=True)
+        letra = letra_mod.alinhar(
+            letra, dados, taxa, duracao=projeto.mapa.duracao, mapa=projeto.mapa
+        )
+    letra.titulo = letra.titulo or projeto.titulo
+    letra.artista = letra.artista or projeto.artista
+    projeto.letra = letra.as_dict()
+    projeto.salvar()
+    letra_mod.salvar(letra, projeto.apoio)
+    for chave, caminho in letra.escrever(projeto.apoio, base="letra").items():
+        print(f"  letra_{chave}: {caminho}")
+    for aviso in letra.avisos:
+        print(f"  ! {aviso}")
+    _ = _json
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
 
     # Subcomandos "de verdade" (não são fontes de mídia).
-    if argv and argv[0] in ("doctor", "stems", "models", "serve", "app", "ia", "ai", "atalho"):
+    if argv and argv[0] in (
+        "doctor", "stems", "models", "serve", "app", "ia", "ai", "atalho", "projeto",
+    ):
         command, rest = argv[0], argv[1:]
         if command == "atalho":
             from .app import criar_atalho_desktop
@@ -214,6 +420,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print("motor de IA instalado. O backend 'demucs' já está disponível.")
             return 0
+        if command == "projeto":
+            return cmd_projeto(rest)
         if command == "doctor":
             return separator.doctor()
         if command == "stems":

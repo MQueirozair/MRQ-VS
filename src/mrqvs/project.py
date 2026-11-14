@@ -30,6 +30,7 @@ from . import analysis as analysis_mod
 from . import acordes as acordes_mod
 from . import cover, derive, dsp, export, guia as guia_mod, media, naming, report, separator
 from . import stems as stems_mod
+from . import __version__
 
 
 @dataclass
@@ -166,6 +167,10 @@ class ProjectResult:
     studio: StudioData = field(default_factory=StudioData)
     #: `ENSAIO_LR.wav` na pasta de áudio (clique+guia | banda); None se off
     lr: Path | None = None
+    #: `projeto.mrqvs.json` na pasta de apoio — o projeto multitrack editável
+    projeto_vs: Path | None = None
+    #: cifra exportada em texto/ChordPro/CSV: {"txt": caminho, ...}
+    cifra_arquivos: dict[str, Path] = field(default_factory=dict)
 
 
 class PipelineError(RuntimeError):
@@ -539,6 +544,45 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             fmt=export_opts.fmt,
             sample_rate=sample_rate,
         )
+        # 9d. projeto multitrack + cifra exportada ------------------------
+        # O `projeto.json` é a análise (pode ser refeita). O que o usuário
+        # edita depois — volume, ordem das faixas, cifra corrigida — vive no
+        # `projeto.mrqvs.json`, ao lado. Gerar agora significa que reabrir a
+        # música já encontra o projeto pronto, com a régua e a cifra certas.
+        projeto_vs_path: Path | None = None
+        cifra_arquivos: dict[str, Path] = {}
+        try:
+            from . import projeto_vs as projeto_vs_mod
+
+            projeto = projeto_vs_mod.ProjetoVS.de_resultado(
+                ProjectResult(
+                    folder=folder,
+                    media=info,
+                    analysis=analysed,
+                    stems_written=written,
+                    backend=result.backend,
+                    model=result.model,
+                    warnings=warnings,
+                    elapsed=0.0,
+                    compasso=compasso,
+                    compasso_confianca=compasso_conf,
+                    acordes=acordes,
+                    guia=guia_path,
+                    lr=lr,
+                    studio=studio,
+                ),
+                version=__version__,
+            )
+            projeto_vs_path = projeto.salvar()
+            # chave curta ("txt", "chordpro", "csv"): é o que a tela usa
+            cifra_arquivos = {
+                chave.removeprefix("cifra_"): Path(caminho)
+                for chave, caminho in projeto.exportar_apoio().items()
+                if chave.startswith("cifra_")
+            }
+        except Exception as exc:  # noqa: BLE001 - projeto é bônus, não derruba
+            warnings.append(f"não foi possível gerar o projeto multitrack: {exc}")
+
         # Logs crus: úteis quando o usuário pede ajuda no fórum.
         (apoio / "log").mkdir(exist_ok=True)
         for log in log_dir.glob("*.log"):
@@ -566,6 +610,8 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             guia=guia_path,
             lr=lr,
             studio=studio,
+            projeto_vs=projeto_vs_path,
+            cifra_arquivos=cifra_arquivos,
         )
     finally:
         if options.keep_work:

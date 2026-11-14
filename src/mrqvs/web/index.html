@@ -423,6 +423,21 @@
   .faixa.compacta .faixa-controles{padding:0;flex:1;min-width:0}
   .faixa.compacta .ctrl-rot{width:18px;font-size:8px}
   .faixa.compacta .ctrl-val{width:18px;font-size:8.5px}
+  /* letra sincronizada: mesma régua x da cifra, fonte menor e cor mais fria
+     para não competir com o acorde (o olho procura o acorde primeiro) */
+  .marca-nomeada{position:absolute;top:0;height:100%;pointer-events:auto;cursor:default;
+    display:flex;align-items:flex-start;z-index:3}
+  .marca-nomeada i{width:2px;height:100%;background:#d8b25a;opacity:.85}
+  .marca-nomeada b{font-size:10px;font-weight:600;color:#e7cd88;background:rgba(20,24,29,.82);
+    padding:0 4px;border-radius:0 3px 3px 0;margin-top:2px;white-space:nowrap;max-width:110px;
+    overflow:hidden;text-overflow:ellipsis}
+  .marca-nomeada:hover b{background:#d8b25a;color:#14181d}
+  .linha-letra{position:relative;height:20px;margin-top:2px;overflow:hidden}
+  .linha-letra .letra-linha{position:absolute;top:0;white-space:nowrap;font-size:11px;
+    color:#9fb0c4;letter-spacing:.01em;pointer-events:none}
+  .linha-letra .letra-linha.estimada{color:#c9a227;font-style:italic}
+  .linha-letra .letra-linha.estimada::after{content:"≈";margin-left:3px;font-style:normal}
+
   .faixa.compacta .faixa-pan{width:34px;flex:1}
   /* NÍVEL FINAL (`.minima`): o degrau que faz TODAS as faixas caberem.
      A linha vira uma faixa horizontal compacta: o topo (cor, nome, M/S/⋯)
@@ -1077,6 +1092,14 @@ python -m pip install demucs</pre>
               <button id="expPasta" type="button">Abrir a pasta dos stems</button>
               <button id="expAtalho" type="button">Criar ícone na Área de Trabalho
                 <small>adiciona o atalho do MRQ Audio Studio no Desktop</small></button>
+              <button id="expCifra" type="button">Cifra (txt + ChordPro + CSV)
+                <small>acordes por compasso, com a confiança de cada um</small></button>
+              <button id="expFicha" type="button">Ficha para imprimir (PDF pelo navegador)
+                <small>cifra + letra + seções numa página A4</small></button>
+              <button id="expMidi" type="button">MIDI (clique + cifra + marcadores)
+                <small>mapa de tempo com as trocas de BPM e de compasso</small></button>
+              <button id="expStemsEditados" type="button">Stems editados (WAV)
+                <small>volume, pan, offset e fades aplicados em cada faixa</small></button>
               <a id="expRelatorio" href="#" target="_blank" rel="noopener">Relatório completo</a>
             </div>
           </div>
@@ -1089,6 +1112,8 @@ python -m pip install demucs</pre>
         <button class="ferr" id="fMetro" type="button" title="Ligar/desligar o clique">⏱</button>
         <button class="ferr" id="fLoop" type="button" title="Repetir o trecho (L)">⟳</button>
         <button class="ferr" id="fMarcar" type="button" title="Marcar seção no compasso atual">⚑</button>
+        <button class="ferr ferr-curto" id="fLetra" type="button"
+                title="Letra: colar, importar .lrc/.srt ou transcrever do áudio">Letra</button>
         <button class="ferr ferr-curto" id="fImportarFaixa" type="button"
                 title="Importar faixa de áudio adicional para este projeto">+ Faixa</button>
         <input id="fImportarInput" type="file" hidden multiple
@@ -1164,6 +1189,9 @@ python -m pip install demucs</pre>
           <div class="tempo-conteudo" id="tempoRolagem">
             <div class="regua" id="regua"></div>
             <div class="linha-cifra" id="linhaCifra"></div>
+            <!-- LETRA: uma linha por compasso, no mesmo x da cifra. Fica
+                 oculta até existir letra — nada de faixa vazia na tela. -->
+            <div class="linha-letra" id="linhaLetra" hidden></div>
             <!-- A grade é preenchida por studioCriarFaixa(), uma trilha por
                  faixa. Deixar trilhas fixas aqui criava trilhas-fantasma (a
                  lista do painel ficava com N itens e a timeline com N+2). -->
@@ -2111,6 +2139,12 @@ const Studio = window.Studio = {
   bpmManual: false,
   offsetInicial: 0,
   mudancasCompasso: [],
+  // projeto multitrack: caminho do .mrqvs.json no disco ("" = música de versão
+  // antiga, que usa só o edicoes.json) e último estado lido do servidor
+  projetoApoio: "",
+  // letra sincronizada e marcadores nomeados (lidos do .mrqvs.json)
+  letra: null,
+  marcadores: [],
   duracao: 0,
   acordes: [],
   secoes: [],
@@ -2677,6 +2711,7 @@ function studioMontar(d){
   studioPosicionarCabeca();
   studioAtualizarTransporte();
   studioCarregarEdicoes(d);
+  studioCarregarProjeto(d);
 }
 
 /** Um AudioContext para toda a sessão (decodificação e reprodução).
@@ -2879,6 +2914,8 @@ function studioCriarFaixa(cfg){
     id: cfg.id, chave: cfg.chave || cfg.id, nome: cfg.nome, url: cfg.url || "",
     arquivo: cfg.arquivo || "", tipo: cfg.tipo || "stem", cor: cfg.cor,
     el, sintetica, mudo: false, solo: false, volume: 1, pan: 0,
+    // offset/fade do mixer multitrack (0 = sem deslocamento, sem rampa)
+    offset: 0, fadeIn: 0, fadeOut: 0,
     linha, trilha, canvas: trilha.querySelector("canvas"),
     medidor: linha.querySelector(".faixa-medidor i"),
     ganho: null, panNode: null, analyser: null, picos: null,
@@ -4951,6 +4988,281 @@ function apoioDe(d){
 function marcarSalvo(){ studioSalvarEdicoes(); }
 
 let _salvarTimer = null;
+/** Caminho da pasta `-apoio` para as rotas do projeto multitrack. */
+function apoioDoProjeto(){ return apoioDe(); }
+
+/** Marca a interface como "há alteração não salva". */
+function marcarSalvo(){
+  const alvo = $("studioSalvo");
+  if (!alvo) return;
+  alvo.textContent = "salvando…";
+  alvo.classList.remove("ok");
+}
+
+/** Manda um patch para o projeto multitrack e devolve a resposta do servidor.
+ *
+ *  Por que um caminho só: a tela antes salvava em `edicoes.json` (que o editor
+ *  antigo entende) e o projeto novo precisa de mais campos (offset, fade,
+ *  ordem, marcadores). Uma função com um payload só evita as duas verdades
+ *  discordarem sobre o mesmo projeto.
+ */
+async function projetoSalvar(patch){
+  const apoio = apoioDoProjeto();
+  if (!apoio) return null;
+  const corpo = Object.assign({apoio}, patch || {});
+  try{
+    const r = await post("/api/projeto-vs", corpo);
+    if (r && r.ok){
+      const alvo = $("studioSalvo");
+      if (alvo){ alvo.textContent = "salvo"; alvo.classList.add("ok"); }
+    }
+    return r;
+  }catch(_){
+    return null;
+  }
+}
+
+/** Rótulo de um arquivo para o botão de download. */
+function nomeDeArquivo(url, padrao){
+  try{
+    const p = new URL(url, location.origin).searchParams.get("p") || "";
+    const nome = p.split("/").pop();
+    return nome || padrao;
+  }catch(_){ return padrao; }
+}
+
+/** Baixa um arquivo do servidor com o nome certo (não abre aba nova vazia). */
+function baixarDoServidor(url, nome){
+  if (!url) return;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome || nomeDeArquivo(url, "arquivo");
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** Exporta a cifra: grava no disco (txt/ChordPro/CSV) e baixa o txt.
+ *
+ *  Duas coisas de uma vez, de propósito: o arquivo fica na pasta `-apoio` para
+ *  o projeto guardar, e o download entrega o arquivo na mão do usuário que
+ *  está no ensaio. O aviso diz o que foi gravado e quantos compassos saíram
+ *  sem acorde confiável — a mesma verdade que está no txt.
+ */
+async function exportarCifra(){
+  const apoio = apoioDoProjeto();
+  if (!apoio){ ferrDizer("abra uma música separada para exportar a cifra"); return; }
+  await studioSalvarEdicoes();
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = "gerando cifra…";
+  let r = null;
+  try{ r = await post("/api/projeto-vs/exportar", {apoio}); }catch(_){ r = null; }
+  if (!r || !r.ok || !r.arquivos){
+    if (dica) dica.textContent = (r && r.erro) || "não foi possível gerar a cifra";
+    return;
+  }
+  const txt = r.arquivos.cifra_txt;
+  if (dica){
+    const incertas = Studio.acordes.filter(a => {
+      const c = Number(a.confianca == null ? 1 : a.confianca);
+      return !a.acorde || a.acorde === "?" || c < 0.2;
+    }).length;
+    dica.textContent = incertas
+      ? `cifra gravada · ${incertas} compasso(s) marcados com "?"`
+      : "cifra gravada (txt, ChordPro e CSV)";
+  }
+  if (txt && txt.url) baixarDoServidor(txt.url, txt.nome);
+  ULTIMO = ULTIMO || {};
+  ULTIMO.cifraArquivos = r.arquivos;
+}
+
+/** Abre a ficha imprimível numa aba nova (o navegador imprime em PDF). */
+async function abrirFicha(){
+  const apoio = apoioDoProjeto();
+  if (!apoio){ ferrDizer("abra uma música separada para gerar a ficha"); return; }
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = "montando a ficha…";
+  let r = null;
+  try{ r = await post("/api/projeto-vs/exportar", {apoio}); }catch(_){ r = null; }
+  const ficha = r && r.arquivos && r.arquivos.ficha;
+  if (!ficha || !ficha.url){
+    if (dica) dica.textContent = (r && r.erro) || "não foi possível gerar a ficha";
+    return;
+  }
+  if (dica) dica.textContent = "ficha pronta — use Ctrl+P para salvar em PDF";
+  window.open(ficha.url, "_blank", "noopener");
+}
+
+/** Baixa o MIDI (mapa de tempo + clique + cifra + marcadores). */
+async function baixarMidi(){
+  const apoio = apoioDoProjeto();
+  if (!apoio){ ferrDizer("abra uma música separada para exportar o MIDI"); return; }
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = "gerando MIDI…";
+  let r = null;
+  try{ r = await post("/api/projeto-vs/exportar", {apoio}); }catch(_){ r = null; }
+  const midi = r && r.arquivos && r.arquivos.midi;
+  if (!midi || !midi.url){
+    if (dica) dica.textContent = (r && r.erro) || "não foi possível gerar o MIDI";
+    return;
+  }
+  if (dica) dica.textContent = "MIDI pronto: mapa de tempo, clique, cifra e marcadores";
+  baixarDoServidor(midi.url, midi.nome);
+}
+
+/** Exporta cada faixa audível com as edições aplicadas (stems editados). */
+async function exportarStemsEditados(){
+  const apoio = apoioDoProjeto();
+  if (!apoio){ ferrDizer("abra uma música separada para exportar os stems"); return; }
+  await studioSalvarEdicoes();
+  const dica = $("ferrDica");
+  if (dica) dica.textContent = "renderizando stems editados…";
+  let r = null;
+  try{ r = await post("/api/projeto-vs/render", {apoio, tipo: "stems"}); }catch(_){ r = null; }
+  if (!r || r.erro){
+    if (dica) dica.textContent = (r && r.erro) || "não foi possível exportar os stems";
+    return;
+  }
+  const nomes = Object.keys(r.arquivos || {});
+  if (dica) dica.textContent = `${nomes.length} stem(s) exportado(s) em ${r.pasta || "pasta do projeto"}`;
+  // um download por faixa: o usuário recebe o que está ouvindo, não o cru
+  nomes.forEach((chave, i) => setTimeout(() => {
+    const item = r.arquivos[chave];
+    if (item && item.url) baixarDoServidor(item.url, item.nome);
+  }, i * 350));
+}
+
+/** Painel da letra: colar, importar arquivo ou transcrever do áudio. */
+function abrirLetra(){
+  fecharPopover();
+  const atual = (Studio.letra && Studio.letra.linhas) || [];
+  const pop = document.createElement("div");
+  pop.className = "pop-flutuante";
+  pop.id = "popLetra";
+  pop.style.maxWidth = "420px";
+  const metodo = Studio.letra && Studio.letra.metodo
+    ? ({motor: "transcrita pelo motor", importada: "importada com tempo",
+        energia: "alinhada por energia (estimada)"}[Studio.letra.metodo] || Studio.letra.metodo)
+    : "sem letra neste projeto";
+  pop.innerHTML = `
+    <h6>Letra <small style="color:#6f7f92;font-weight:500">${escapeHtml(metodo)}</small></h6>
+    <p style="margin:0 0 6px;font-size:11.5px;color:#6f7f92">
+      Cole a letra (uma linha por verso), importe um .lrc/.srt com tempo, ou
+      transcreva do áudio (exige motor instalado). O alinhamento por energia é
+      estimado e aparece marcado como tal.
+    </p>
+    <textarea id="popLetraTexto" rows="7" style="width:100%;box-sizing:border-box;font:inherit;
+      font-size:12px;resize:vertical" placeholder="cole aqui a letra, ou o conteúdo de um .lrc">${
+        escapeHtml(atual.map(l => l.texto).join("\n"))}</textarea>
+    <div class="pop-chips" style="margin-top:6px">
+      <button type="button" data-acao="arquivo">Importar .lrc/.srt</button>
+      <button type="button" data-acao="transcrever">Transcrever do áudio</button>
+    </div>
+    <div class="pop-acoes">
+      <button type="button" data-acao="cancelar">Cancelar</button>
+      <button type="button" class="prim" data-acao="salvar">Alinhar e salvar</button>
+    </div>
+    <input type="file" id="popLetraArquivo" hidden accept=".lrc,.srt,.txt,.vtt">`;
+  document.body.appendChild(pop);
+  const r = ($("fLetra") || {getBoundingClientRect: () => ({left: 40, bottom: 120})}).getBoundingClientRect();
+  let x = Math.min(Math.max(8, r.left - 40), window.innerWidth - 440);
+  let y = r.bottom + 8;
+  if (y + 320 > window.innerHeight - 8) y = Math.max(8, r.top - 330);
+  pop.style.left = Math.round(x) + "px";
+  pop.style.top = Math.round(y) + "px";
+
+  const input = pop.querySelector("#popLetraTexto");
+  if (!input){ pop.remove(); ferrDizer("não foi possível abrir o painel de letra"); return; }
+  const inputArquivo = pop.querySelector("#popLetraArquivo");
+  const fechar = () => pop.remove();
+  let enviando = false;
+
+  const enviar = async (texto, extras) => {
+    if (enviando) return;
+    const apoio = apoioDoProjeto();
+    if (!apoio){ ferrDizer("abra uma música separada para sincronizar a letra"); return; }
+    enviando = true;
+    const pedido = Object.assign({apoio, texto}, extras || {});
+    const dica = $("ferrDica");
+    if (dica) dica.textContent = pedido.transcrever
+      ? "transcrevendo a voz (pode levar alguns minutos)…"
+      : "alinhando a letra ao áudio…";
+    // `post` lança em resposta != 2xx e o corpo com o erro se perde; aqui o
+    // fetch cru deixa ler `manual` (instrução de instalar o transcritor) e
+    // mostrar ao usuário em vez de só dizer "falhou".
+    let resposta = null;
+    try{
+      const r = await fetch("/api/letra", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(pedido),
+      });
+      resposta = await r.json().catch(() => null);
+    }catch(_){ resposta = null; }
+    enviando = false;
+    if (!resposta || resposta.erro){
+      const manual = resposta && resposta.manual;
+      if (dica) dica.textContent = (resposta && resposta.erro) || "não foi possível alinhar a letra";
+      if (manual) alert(manual);
+      return;
+    }
+    Studio.letra = resposta.letra;
+    const linhas = (resposta.letra && resposta.letra.linhas) || [];
+    if (dica){
+      dica.textContent = `${linhas.length} linha(s) de letra sincronizada` +
+        (resposta.letra && resposta.letra.metodo === "energia" ? " (tempos estimados)" : "");
+    }
+    fechar();
+    studioDesenharLetra();
+    marcarSalvo();
+    studioSalvarEdicoes();
+  };
+
+  pop.querySelectorAll("[data-acao]").forEach(botao => {
+    botao.onclick = async () => {
+      const acao = botao.dataset.acao;
+      if (acao === "cancelar"){ fechar(); return; }
+      if (acao === "arquivo"){ inputArquivo.click(); return; }
+      if (acao === "transcrever"){ await enviar("", {transcrever: true}); return; }
+      const texto = input.value.trim();
+      if (!texto){ input.focus(); return; }
+      await enviar(texto, {});
+    };
+  });
+  inputArquivo.onchange = async () => {
+    const arquivo = inputArquivo.files && inputArquivo.files[0];
+    if (!arquivo) return;
+    const texto = await arquivo.text();
+    input.value = texto;
+    await enviar(texto, {nome: arquivo.name});
+  };
+  input.focus();
+}
+
+/** Desenha a letra embaixo da cifra, na linha do compasso em que começa.
+ *
+ *  Uma linha de letra por compasso, alinhada ao MESMO x da cifra (as duas usam
+ *  `xDe`): é o que faz o músico olhar uma coluna só durante o ensaio.
+ */
+function studioDesenharLetra(){
+  const linha = $("linhaLetra");
+  if (!linha) return;
+  const letra = Studio.letra;
+  const linhas = (letra && letra.linhas) || [];
+  if (!linhas.length){ linha.innerHTML = ""; linha.hidden = true; return; }
+  linha.hidden = false;
+  const pecas = linhas.map(item => {
+    const t = Number(item.tempo) || 0;
+    const x = xDe(t);
+    const conf = Number(item.confianca) || 0;
+    const titulo = `${fmtSeg(t)}${conf && conf < 0.6 ? " · tempo estimado" : ""}`;
+    return `<span class="letra-linha${conf && conf < 0.6 ? " estimada" : ""}"` +
+      ` style="left:${x.toFixed(1)}px" title="${escapeHtml(titulo)}">${escapeHtml(item.texto)}</span>`;
+  });
+  linha.innerHTML = pecas.join("");
+}
+
 function studioSalvarEdicoes(){
   const apoio = apoioDe();
   if (!apoio) return;
@@ -4979,13 +5291,129 @@ function studioSalvarEdicoes(){
       mix: todasAsFaixas().map(f => ({
         id: f.id, volume: f.volume, pan: f.pan, mudo: f.mudo, solo: f.solo,
         oculta: !!Studio.ocultas[f.id],
+        offset: Number(f.offset) || 0,
+        fade_in: Number(f.fadeIn) || 0,
+        fade_out: Number(f.fadeOut) || 0,
+        ordem: Number(f.linha.dataset.ordem) || 0,
       })),
     };
     try{
       const r = await post("/api/edicoes", payload);
       if (r && r.ok) studioAvisoSalvo();
+      // o projeto multitrack recebe os campos que o edicoes.json não conhece
+      // (offset/fade/ordem por faixa, letra, marcadores). Sem isso, reabrir a
+      // música perderia justamente o que a tela nova edita.
+      await projetoSalvar({
+        edicoes: {
+          faixas: payload.mix.map(f => ({
+            id: f.id, volume: f.volume, pan: f.pan, mudo: f.mudo,
+            solo: f.solo, oculta: f.oculta, offset: f.offset,
+            fade_in: f.fade_in, fade_out: f.fade_out, ordem: f.ordem,
+          })),
+          letra: Studio.letra || null,
+          secoes: Studio.secoes,
+          marcadores: Studio.marcadores || [],
+          // o loop salvo é o do projeto, não o botão ⟳: guardar `Studio.loop`
+          // (ligado/desligado) como se fosse a região fazia o trecho sumir a
+          // cada salvamento em que o botão estivesse desligado
+          loop: Studio.loopA != null && Studio.loopB != null &&
+                Number(Studio.loopB) > Number(Studio.loopA)
+            ? {inicio: Number(Studio.loopA), fim: Number(Studio.loopB)} : null,
+        },
+      });
     }catch(_){ /* sem disco: a edição continua só na tela */ }
   }, 350);
+}
+
+/** Carrega o projeto multitrack (`.mrqvs.json`) da pasta de apoio.
+ *
+ *  O que este caminho acrescenta ao `edicoes.json`: letra sincronizada,
+ *  marcadores nomeados, loop, offset/fade por faixa e a ordem das faixas.
+ *  Falha aqui é silenciosa de propósito — música de versão antiga não tem
+ *  projeto e continua abrindo com o que o edicoes.json guardou.
+ */
+async function studioCarregarProjeto(d){
+  const apoio = apoioDoProjeto();
+  if (!apoio) return;
+  let proj = null;
+  try{
+    const r = await fetch("/api/projeto-vs?apoio=" + encodeURIComponent(apoio));
+    if (!r.ok) return;
+    proj = await r.json();
+  }catch(_){ return; }
+  if (!proj || !proj.ok) return;
+  Studio.projeto = proj;
+  Studio.projetoApoio = apoio;
+
+  if (proj.letra && proj.letra.linhas && proj.letra.linhas.length){
+    Studio.letra = proj.letra;
+    studioDesenharLetra();
+  }
+  if (Array.isArray(proj.marcadores) && proj.marcadores.length){
+    Studio.marcadores = proj.marcadores.map(m => ({
+      tempo: Number(m.tempo) || 0,
+      nome: m.nome || "Marcador",
+    }));
+    studioDesenharMarcadores();
+  }
+  if (proj.loop && Number(proj.loop.fim) > Number(proj.loop.inicio)){
+    Studio.loopA = Number(proj.loop.inicio);
+    Studio.loopB = Number(proj.loop.fim);
+  }
+  // offset/fade/ordem das faixas: a ordem é aplicada no DOM, o resto no áudio
+  const porId = new Map(((proj.faixas) || []).map(f => [f.id, f]));
+  todasAsFaixas().forEach(f => {
+    const salva = porId.get(f.id);
+    if (!salva) return;
+    f.offset = Number(salva.offset) || 0;
+    f.fadeIn = Number(salva.fade_in) || 0;
+    f.fadeOut = Number(salva.fade_out) || 0;
+    const ordem = Number(salva.ordem);
+    if (Number.isFinite(ordem) && ordem >= 0){
+      f.linha.dataset.ordem = String(ordem);
+      f.trilha.dataset.ordem = String(ordem);
+    }
+  });
+  studioReordenarDOM();
+  studioDesenharTrilhas();
+  studioAtualizarLinksExportar(d);
+}
+
+/** Reordena painel e timeline pela `data-ordem` (sem recriar as faixas). */
+function studioReordenarDOM(){
+  const painel = painelFaixas();
+  const grade = $("gradeFaixas");
+  const ordenar = (container, seletor) => {
+    if (!container) return;
+    const filhos = Array.from(container.querySelectorAll(seletor));
+    filhos.sort((a, b) => (Number(a.dataset.ordem) || 0) - (Number(b.dataset.ordem) || 0));
+    filhos.forEach(el => container.appendChild(el));
+  };
+  ordenar(painel, ":scope > .faixa");
+  ordenar(grade, ":scope > .trilha");
+}
+
+/** Desenha os marcadores nomeados na régua (seção, "entra o solo"...). */
+function studioDesenharMarcadores(){
+  const regua = $("regua");
+  if (!regua) return;
+  regua.querySelectorAll(".marca-nomeada").forEach(el => el.remove());
+  (Studio.marcadores || []).forEach((m, i) => {
+    const el = document.createElement("div");
+    el.className = "marca-nomeada";
+    el.dataset.marcador = String(i);
+    el.style.left = xDe(Number(m.tempo) || 0).toFixed(1) + "px";
+    el.title = `${m.nome} · ${fmtSeg(Number(m.tempo) || 0)} (duplo clique remove)`;
+    el.innerHTML = `<i></i><b>${escapeHtml(m.nome)}</b>`;
+    el.ondblclick = (ev) => {
+      ev.stopPropagation();
+      Studio.marcadores.splice(i, 1);
+      studioDesenharMarcadores();
+      marcarSalvo();
+      studioSalvarEdicoes();
+    };
+    regua.appendChild(el);
+  });
 }
 
 async function studioCarregarEdicoes(d){
@@ -5323,6 +5751,11 @@ function studioLigarBotoes(){
   });
   on("expMix", () => studioExportarMix());
   on("expProjeto", () => { studioSalvarEdicoes(); studioAvisoSalvo(); });
+  on("expCifra", () => exportarCifra());
+  on("expFicha", () => abrirFicha());
+  on("expMidi", () => baixarMidi());
+  on("expStemsEditados", () => exportarStemsEditados());
+  on("fLetra", () => abrirLetra());
   on("expPasta", () => abrirPastaServidor(ULTIMO && ULTIMO.pasta));
   on("expAtalho", () => criarAtalhoDesktop());
 

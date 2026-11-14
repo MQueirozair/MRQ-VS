@@ -122,8 +122,17 @@ function montar(dados, opcoes) {
     Audio: function () { return new AudioEl(doc); },
     requestAnimationFrame: (fn) => { sandbox.__raf = fn; return 1; },
     cancelAnimationFrame: () => {},
-    setTimeout: (fn, ms) => { sandbox.__timers.push({fn, ms}); return sandbox.__timers.length; },
-    clearTimeout: () => {},
+    // setTimeout de verdade, controlável: o teste avança o relógio com
+    // `S.__avancar(ms)`. Antes a função só empilhava e nunca rodava, então o
+    // debounce de salvar (350 ms) nunca disparava nos testes de interface.
+    setTimeout: (fn, ms) => {
+      const id = ++sandbox.__proximo;
+      sandbox.__timers.push({id, fn, ms: Number(ms) || 0, quando: sandbox.__agora + (Number(ms) || 0)});
+      return id;
+    },
+    clearTimeout: (id) => {
+      sandbox.__timers = sandbox.__timers.filter((t) => t.id !== id);
+    },
     clearInterval: () => {},
     setInterval: () => 0,
     fetch: opts.fetch || (() => Promise.resolve({ok: false, status: 404, json: () => Promise.resolve({})})),
@@ -136,6 +145,27 @@ function montar(dados, opcoes) {
     performance: {now: () => Date.now()},
   };
   sandbox.__timers = [];
+  sandbox.__agora = 0;
+  sandbox.__proximo = 0;
+  /** Avança o relógio falso e executa os timers vencidos (ordem de horário). */
+  sandbox.__avancar = (ms) => {
+    const alvo = sandbox.__agora + (Number(ms) || 0);
+    for (;;) {
+      const prontos = sandbox.__timers.filter((t) => t.quando <= alvo)
+        .sort((a, b) => a.quando - b.quando || a.id - b.id);
+      if (!prontos.length) break;
+      const t = prontos[0];
+      sandbox.__timers = sandbox.__timers.filter((x) => x.id !== t.id);
+      sandbox.__agora = t.quando;
+      try { t.fn(); } catch (e) { sandbox.__avisos.push("timer: " + e); }
+    }
+    sandbox.__agora = alvo;
+    return sandbox.__timers.length;
+  };
+  /** Espera as promessas pendentes (o que antes era `await esperar()`). */
+  sandbox.__assentar = async (voltas = 6) => {
+    for (let i = 0; i < voltas; i++) await Promise.resolve();
+  };
   sandbox.addEventListener = () => {};
   sandbox.removeEventListener = () => {};
   sandbox.devicePixelRatio = 1;
