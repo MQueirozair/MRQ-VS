@@ -112,6 +112,80 @@ def _write_wav(data, sample_rate: int, dst: Path, bits: int, normalize: bool) ->
     return dst
 
 
+def _mp3_nativo(data, sample_rate: int, dst: Path, bitrate: str, opts: ExportOptions) -> Path:
+    """MP3 sem ffmpeg, pelo `lameenc` (LAME empacotado em wheel).
+
+    Por que existe: no Linux o ffmpeg raramente vem instalado, e o resultado
+    era o selo "MP3 indisponível" numa tela que separa áudio — o usuário não
+    entende por que o programa não exporta o formato mais comum. O MP3 não
+    depende de vídeo nenhum; só faltava um encoder. O `lameenc` são ~190 kB de
+    wheel e usa a mesma LAME que o ffmpeg usaria em `libmp3lame`.
+
+    O `ffmpeg` continua sendo usado quando existe (é mais rápido e já traz as
+    tags ID3); esta é a rota de reserva para quando ele não está.
+    """
+    try:
+        import lameenc
+    except ModuleNotFoundError:
+        raise dsp.MissingDependency(
+            "lameenc", "exportar MP3 sem ffmpeg (python -m pip install lameenc)"
+        ) from None
+
+    import numpy as np
+
+    sinal = np.asarray(data, dtype=np.float32)
+    if sinal.ndim == 1:
+        sinal = np.stack([sinal, sinal], axis=1)
+    elif sinal.shape[1] > 2:  # MP3 não carrega mais de dois canais
+        sinal = sinal[:, :2]
+    # o LAME começa a distorcer perto do topo da escala: --1 dBFS de margem
+    pico = float(np.max(np.abs(sinal))) if sinal.size else 0.0
+    if pico > 0.891:  # ~ -1 dBFS
+        sinal = sinal * (0.891 / pico)
+
+    canais = int(sinal.shape[1])
+    kbps = 320
+    if bitrate.endswith("k") and bitrate[:-1].isdigit():
+        kbps = int(bitrate[:-1])
+    elif bitrate.isdigit():
+        kbps = int(bitrate)
+
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(kbps)
+    encoder.set_in_sample_rate(int(sample_rate))
+    encoder.set_channels(canais)
+    encoder.set_quality(2)  # 2 = alta qualidade (0 é a mais lenta/alta)
+    pcm = (sinal * 32767.0).clip(-32768, 32767).astype(np.int16)
+    mp3 = bytes(encoder.encode(pcm.tobytes())) + bytes(encoder.flush())
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # ID3v2 mínimo: sem ele alguns players mostram 0:00 na primeira leitura
+    dst.write_bytes(_id3_minimo(opts) + mp3)
+    return dst
+
+
+def _id3_minimo(opts: ExportOptions) -> bytes:
+    """Cabeçalho ID3v2.3 só com título/artista/BPM — o bastante para o player."""
+    quadros = b""
+    for codigo, valor in (
+        ("TIT2", opts.title),
+        ("TPE1", opts.artist),
+        ("TBPM", f"{int(round(opts.bpm))}" if opts.bpm else ""),
+        ("TENC", "MRQ VS"),
+    ):
+        if not valor:
+            continue
+        corpo = b"\x00" + str(valor).encode("utf-8")  # 0x00 = Latin-1/UTF-8
+        quadros += codigo.encode("ascii") + len(corpo).to_bytes(4, "big") + b"\x00\x00" + corpo
+    if not quadros:
+        return b""
+
+    def sincsafe(n: int) -> bytes:  # 7 bits por byte, como o ID3 exige
+        return bytes(((n >> 21) & 0x7F, (n >> 14) & 0x7F, (n >> 7) & 0x7F, n & 0x7F))
+
+    return b"ID3\x03\x00\x00" + sincsafe(len(quadros)) + quadros
+
+
 def export_audio(
     data,
     sample_rate: int,
@@ -130,6 +204,9 @@ def export_audio(
 
     with tempfile.TemporaryDirectory(prefix="mrqvs-export-") as tmp:
         wav = _write_wav(data, sample_rate, Path(tmp) / "src.wav", 32, opts.normalize)
+        if opts.fmt == "mp3" and not media.have_ffmpeg():
+            # sem ffmpeg: o LAME do `lameenc` faz o mesmo trabalho
+            return _mp3_nativo(data, sample_rate, dst, opts.bitrate, opts)
         if opts.fmt == "mp3":
             _run_ffmpeg(["-i", str(wav), "-c:a", "libmp3lame", "-b:a", opts.bitrate, *_tags(opts), str(dst)])
         else:  # mp4 com visualizador de forma de onda
@@ -253,6 +330,13 @@ def check_export_capabilities(fmt: str) -> tuple[bool, str]:
     """Antes de prometer MP3/MP4, confirma que existe ffmpeg com o encoder."""
     if fmt == "wav":
         return True, "sem dependências extras"
+    if fmt == "mp3" and not media.have_ffmpeg():
+        # o encoder nativo cobre o MP3 sem ffmpeg: só o MP4 continua exigindo
+        try:
+            import lameenc  # noqa: F401
+        except ModuleNotFoundError:
+            return False, "instale lameenc (MP3 sem ffmpeg) ou o ffmpeg"
+        return True, "pronto (lameenc, sem ffmpeg)"
     if not media.have_ffmpeg():
         return False, "precisa do ffmpeg (no pacote portátil ele já vem em lib\\)"
     try:

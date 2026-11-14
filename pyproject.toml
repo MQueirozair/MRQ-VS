@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mrq-vs"
-version = "0.1.27"
+version = "0.1.31"
 description = "Separa músicas em stems, detecta BPM/compasso/acordes, gera clique, guia e ENSAIO L/R de palco."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,14 @@ classifiers = [
 dependencies = [
   "numpy>=1.23",
   "soundfile>=0.12",
+  # MP3 sem depender de ffmpeg no sistema: 190 kB de wheel com a LAME. Sem
+  # isto, o selo "MP3 indisponível" aparecia numa tela que separa áudio — o
+  # formato mais comum que existe, e o mais leve para o celular.
+  # Há wheel para Windows, macOS e Linux (conferido com `pip download
+  # --platform`), então entra em todas as plataformas. A ressalva que existia
+  # aqui (`platform_system != 'Windows'`) deixaria justamente o Windows sem
+  # MP3 no .pyz — o pacote que mais depende de não pedir instalação extra.
+  "lameenc>=1.7",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +49,9 @@ leve = ["openunmix>=1.2.1"]
 onnx = ["audio-separator>=0.20"]
 # Detecção neural de compasso/downbeats (MIT, CPJKU)
 compasso = ["beat-this>=0.1"]
+# Vídeo MP4 (e MP3/leitura de formatos exóticos) com ffmpeg embutido no wheel:
+# ~25 MB, sem instalar nada no sistema. `pip install mrq-vs[video]`.
+video = ["imageio-ffmpeg>=0.5"]
 # Desenvolvimento e testes
 dev = ["pytest>=7.4", "ruff>=0.5"]
 
@@ -57,7 +68,7 @@ Issues = "https://github.com/MQueirozair/MRQ-VS/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mrqvs = ["web/*.html", "web/*.ico", "web/*.png"]
+mrqvs = ["web/*.html", "web/*.ico", "web/*.png", "web/voz/palavras/*.wav"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

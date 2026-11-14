@@ -32,6 +32,8 @@ from urllib.parse import parse_qs, urlparse
 from .. import __version__, export, project, runtime, separator
 from ..stems import MODEL_STEMS, STEM_ORDER, STEMS, recomendacao
 
+from ..voz import SECOES as VOZ_SECOES  # noqa: E402 - precisa vir com o pacote
+
 _JOB_LOCK = threading.Lock()
 _IA_LOCK = threading.Lock()
 _OUT_ROOT = Path("out").resolve()
@@ -138,10 +140,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"versoes": self._biblioteca()})
         elif parsed.path in ("/favicon.ico", "/icone-192.png", "/icone-512.png"):
             self._serve_icone(parsed.path)
+        elif parsed.path.startswith("/api/voz/"):
+            self._serve_voz(parsed.path.rsplit("/", 1)[-1])
         elif parsed.path == "/api/edicoes":
             self._edicoes_ler(parse_qs(parsed.query).get("apoio", [""])[0])
         elif parsed.path == "/api/bib/capa":
             self._serve_capa_bib(parse_qs(parsed.query).get("p", [""])[0])
+        elif parsed.path == "/api/projeto-vs":
+            self._projeto_vs_ler(parse_qs(parsed.query).get("apoio", [""])[0])
         else:
             self._json({"erro": "rota não encontrada"}, 404)
 
@@ -177,6 +183,14 @@ class Handler(BaseHTTPRequestHandler):
             self._edicoes_salvar(self._read_json())
         elif rota == "/api/exportar-mix":
             self._exportar_mix(self._read_json())
+        elif rota == "/api/projeto-vs":
+            self._projeto_vs_salvar(self._read_json())
+        elif rota == "/api/projeto-vs/render":
+            self._projeto_vs_render(self._read_json())
+        elif rota == "/api/projeto-vs/exportar":
+            self._projeto_vs_exportar(self._read_json())
+        elif rota == "/api/letra":
+            self._letra_importar(self._read_json())
         elif rota == "/api/importar-faixa":
             self._importar_faixa(self._read_json())
         elif rota == "/api/atalho":
@@ -366,6 +380,20 @@ class Handler(BaseHTTPRequestHandler):
                     if result.cover
                     else ""
                 ),
+                # projeto multitrack editável (volume, ordem, cifra corrigida)
+                "projeto_vs": (
+                    f"/api/file?p={_relativo(result.projeto_vs, destino)}"
+                    if result.projeto_vs
+                    else ""
+                ),
+                # cifra pronta para levar: txt, ChordPro, CSV e ficha
+                "cifra_arquivos": {
+                    chave: {
+                        "nome": caminho.name,
+                        "url": f"/api/file?p={_relativo(caminho, destino)}",
+                    }
+                    for chave, caminho in (result.cifra_arquivos or {}).items()
+                },
             }
         )
 
@@ -814,6 +842,349 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json({"ok": True, "pasta": str(alvo)})
 
+    # -- projeto multitrack (.mrqvs.json) --------------------------------
+    def _projeto_vs_ler(self, apoio: str) -> None:
+        """Lê o projeto multitrack da pasta `-apoio`.
+
+        Quando o projeto ainda não existe (música separada por versão antiga),
+        devolve 404 e a tela monta o projeto a partir do resultado — assim
+        nenhuma pasta antiga fica sem timeline.
+        """
+        from .. import projeto_vs
+
+        if not apoio:
+            self._json({"erro": "informe a pasta -apoio"}, 400)
+            return
+        alvo = Path(apoio)
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            projeto = projeto_vs.ProjetoVS.carregar(alvo)
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 404)
+            return
+        payload = projeto.as_dict()
+        payload["ok"] = True
+        payload["cifra"] = projeto.cifra_obj().as_dict()
+        payload["letra"] = projeto.letra_obj().as_dict()
+        # arquivos de apoio que já existem no disco (para os links da tela)
+        apoio_pasta = alvo
+        links = {}
+        for chave, padrao in (
+            ("cifra_txt", "*_cifra.txt"),
+            ("cifra_chordpro", "*_cifra.cho"),
+            ("ficha", "*_ficha.html"),
+            ("midi", "*_cifra-e-clique.mid"),
+            ("letra_lrc", "*_letra.lrc"),
+        ):
+            achado = next(iter(sorted(apoio_pasta.glob(padrao))), None)
+            if achado is not None:
+                links[chave] = f"/api/file?p={_relativo(achado, _OUT_ROOT)}"
+        payload["links"] = links
+        self._json(payload)
+
+    def _projeto_vs_salvar(self, payload: dict) -> None:
+        """Aplica um patch de edição e grava o `.mrqvs.json`."""
+        from .. import projeto_vs
+
+        apoio = str(payload.get("apoio") or "")
+        if not apoio or not Path(apoio).is_dir():
+            self._json({"erro": "pasta -apoio não encontrada"}, 404)
+            return
+        alvo = Path(apoio)
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            projeto = projeto_vs.ProjetoVS.carregar(alvo)
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 404)
+            return
+        edicoes = payload.get("edicoes") or payload
+        resultado = projeto.aplicar_edicoes(edicoes if isinstance(edicoes, dict) else {})
+        try:
+            caminho = projeto.salvar()
+        except OSError as exc:
+            self._json({"erro": f"não foi possível salvar o projeto: {exc}"}, 500)
+            return
+        resposta = {
+            **resultado,
+            "arquivo": str(caminho),
+            "projeto": projeto.as_dict(),
+            "cifra": projeto.cifra_obj().as_dict(),
+        }
+        self._json(resposta)
+
+    def _projeto_vs_render(self, payload: dict) -> None:
+        """Renderiza o mix ou os stems editados (o que a tela está ouvindo)."""
+        from .. import projeto_vs
+
+        apoio = str(payload.get("apoio") or "")
+        alvo = Path(apoio)
+        if not apoio or not alvo.is_dir():
+            self._json({"erro": "pasta -apoio não encontrada"}, 404)
+            return
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            projeto = projeto_vs.ProjetoVS.carregar(alvo)
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 404)
+            return
+        edicoes = payload.get("edicoes")
+        if isinstance(edicoes, dict) and edicoes:
+            projeto.aplicar_edicoes(edicoes)
+        try:
+            if str(payload.get("tipo") or "mix") == "stems":
+                resultado = projeto.renderizar_stems(
+                    formato=str(payload.get("formato") or "wav")
+                )
+                for chave, caminho in list(resultado["arquivos"].items()):
+                    resultado["arquivos"][chave] = {
+                        "arquivo": caminho,
+                        "url": f"/api/file?p={_relativo(Path(caminho), _OUT_ROOT)}",
+                        "nome": Path(caminho).name,
+                    }
+            else:
+                resultado = projeto.renderizar(
+                    sample_rate=int(payload.get("sample_rate") or 44100)
+                )
+                destino = Path(resultado["arquivo"])
+                resultado["url"] = f"/api/file?p={_relativo(destino, _OUT_ROOT)}"
+                resultado["nome"] = destino.name
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 400)
+            return
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._json({"erro": f"falha ao renderizar: {exc}"}, 500)
+            return
+        self._json(resultado)
+
+    def _projeto_vs_exportar(self, payload: dict) -> None:
+        """Grava cifra (txt/ChordPro/CSV), MIDI e ficha na pasta `-apoio`."""
+        from .. import projeto_vs
+
+        apoio = str(payload.get("apoio") or "")
+        alvo = Path(apoio)
+        if not apoio or not alvo.is_dir():
+            self._json({"erro": "pasta -apoio não encontrada"}, 404)
+            return
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            projeto = projeto_vs.ProjetoVS.carregar(alvo)
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 404)
+            return
+        edicoes = payload.get("edicoes")
+        if isinstance(edicoes, dict) and edicoes:
+            projeto.aplicar_edicoes(edicoes)
+        try:
+            projeto.salvar()
+            arquivos = projeto.exportar_apoio()
+        except OSError as exc:
+            self._json({"erro": f"não foi possível gravar: {exc}"}, 500)
+            return
+        self._json(
+            {
+                "ok": True,
+                "arquivos": {
+                    chave: {
+                        "arquivo": caminho,
+                        "nome": Path(caminho).name,
+                        "url": f"/api/file?p={_relativo(Path(caminho), _OUT_ROOT)}",
+                    }
+                    for chave, caminho in arquivos.items()
+                },
+            }
+        )
+
+    def _letra_importar(self, payload: dict) -> None:
+        """Letra colada/importada, alinhada ao áudio e gravada no projeto.
+
+        O áudio usado para achar a voz é o stem de vocais quando ele existe
+        (muito melhor que o mix: sem instrumentos atrapalhando a energia) e
+        o mix em último caso. Nada é transcrito aqui: se o usuário não tem a
+        letra, a rota devolve o manual do transcritor em vez de inventar.
+        """
+        from .. import letra as letra_mod
+        from .. import projeto_vs
+
+        apoio = str(payload.get("apoio") or "")
+        alvo = Path(apoio)
+        if not apoio or not alvo.is_dir():
+            self._json({"erro": "pasta -apoio não encontrada"}, 404)
+            return
+        if not _pode_servir(alvo):
+            self._json({"erro": "pasta fora das raízes autorizadas"}, 403)
+            return
+        try:
+            projeto = projeto_vs.ProjetoVS.carregar(alvo)
+        except projeto_vs.ProjetoInvalido as exc:
+            self._json({"erro": str(exc)}, 404)
+            return
+
+        texto = str(payload.get("texto") or "")
+        transcrever = bool(payload.get("transcrever"))
+        if transcrever:
+            return self._transcrever_letra(projeto, payload)
+
+        if not texto.strip():
+            self._json(
+                {
+                    "erro": "cole a letra ou envie um .lrc/.srt — "
+                            "para transcrever do áudio, marque 'transcrever'",
+                    "manual": letra_mod.manual(),
+                },
+                400,
+            )
+            return
+        try:
+            formato = letra_mod.detectar_formato(texto, str(payload.get("nome") or ""))
+            if formato == "lrc":
+                letra = letra_mod.ler_lrc(texto)
+            elif formato == "srt":
+                letra = letra_mod.ler_srt(texto)
+            else:
+                letra = letra_mod.ler_texto(texto)
+        except letra_mod.LetraInvalida as exc:
+            self._json({"erro": str(exc)}, 400)
+            return
+
+        # alinhamento por energia no áudio da voz
+        audio_faixa = self._audio_para_alinhar(projeto)
+        if audio_faixa is not None:
+            try:
+                import soundfile as sf
+
+                dados, taxa = sf.read(str(audio_faixa), dtype="float32", always_2d=True)
+                letra = letra_mod.alinhar(
+                    letra,
+                    dados,
+                    taxa,
+                    duracao=float(projeto.mapa.duracao or (dados.shape[0] / taxa)),
+                    mapa=projeto.mapa,
+                )
+            except Exception as exc:  # noqa: BLE001 - alinhar é bônus
+                letra.avisos.append(f"não foi possível alinhar ao áudio: {exc}")
+        letra.titulo = letra.titulo or projeto.titulo
+        letra.artista = letra.artista or projeto.artista
+        projeto.letra = letra.as_dict()
+        projeto.salvar()
+        letra_mod.salvar(letra, alvo)
+        arquivos = {
+            chave: {
+                "arquivo": str(caminho),
+                "nome": Path(caminho).name,
+                "url": f"/api/file?p={_relativo(Path(caminho), _OUT_ROOT)}",
+            }
+            for chave, caminho in letra.escrever(alvo, base=f"{_slug(projeto.titulo or alvo.name)}_letra").items()
+        }
+        self._json({"ok": True, "letra": letra.as_dict(), "arquivos": arquivos})
+
+    def _audio_para_alinhar(self, projeto) -> Path | None:
+        """Stem de vocais quando existe; senão o mix; senão o original."""
+        for candidatos in (("vocals",), ("mix",)):
+            for chave in candidatos:
+                faixa = projeto.faixa(chave)
+                if faixa is None:
+                    continue
+                caminho = projeto.caminho_da_faixa(faixa)
+                if caminho is not None:
+                    return caminho
+        apoio = Path(projeto.apoio)
+        for nome in ("audio_original.wav",):
+            if (apoio / nome).is_file():
+                return apoio / nome
+        return next(iter(sorted(Path(projeto.pasta).glob("*.wav"))), None)
+
+    def _transcrever_letra(self, projeto, payload: dict) -> None:
+        """Transcrição de verdade — só com motor instalado, e diz qual."""
+        from .. import letra as letra_mod
+
+        audio = self._audio_para_alinhar(projeto)
+        if audio is None:
+            self._json({"erro": "não há áudio neste projeto para transcrever"}, 400)
+            return
+        escolhido = letra_mod.motor_disponivel()
+        if escolhido is None:
+            self._json(
+                {
+                    "erro": "nenhum motor de transcrição instalado",
+                    "manual": letra_mod.manual(),
+                    "motor": None,
+                },
+                501,
+            )
+            return
+        try:
+            letra = letra_mod.transcrever(
+                audio,
+                idioma=str(payload.get("idioma") or "pt"),
+                modelo=str(payload.get("modelo") or ""),
+            )
+        except letra_mod.MotorIndisponivel as exc:
+            self._json({"erro": str(exc), "manual": letra_mod.manual()}, 501)
+            return
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            self._json({"erro": f"falha na transcrição: {exc}"}, 500)
+            return
+        if letra.vazia:
+            self._json(
+                {"erro": "o motor não reconheceu fala neste áudio (instrumental?)",
+                 "motor": escolhido[0]},
+                422,
+            )
+            return
+        letra.titulo = letra.titulo or projeto.titulo
+        letra.artista = letra.artista or projeto.artista
+        projeto.letra = letra.as_dict()
+        projeto.salvar()
+        apoio = Path(projeto.apoio)
+        letra_mod.salvar(letra, apoio)
+        arquivos = {
+            chave: {
+                "arquivo": str(caminho),
+                "nome": Path(caminho).name,
+                "url": f"/api/file?p={_relativo(Path(caminho), _OUT_ROOT)}",
+            }
+            for chave, caminho in letra.escrever(apoio, base=f"{_slug(projeto.titulo or apoio.name)}_letra").items()
+        }
+        self._json({"ok": True, "motor": escolhido[0], "letra": letra.as_dict(), "arquivos": arquivos})
+
+    def _serve_voz(self, numero: str) -> None:
+        """Número falado (1..8) para a contagem em voz.
+
+        Devolve 404 quando o áudio não está no pacote — a interface trata isso
+        caindo na voz do sistema, e nada quebra. É de propósito que a ausência
+        seja silenciosa: o programa funciona sem os arquivos de voz.
+        """
+        # aceita número ("3") e nome de seção ("refrao"): a guia precisa dos
+        # dois, e obrigar o navegador a saber isso seria acoplamento à toa
+        chave = str(numero or "").strip().lower()
+        if chave.isdigit():
+            if not 1 <= int(chave) <= 8:
+                self._json({"erro": "número fora de 1..8"}, 404)
+                return
+        elif chave not in VOZ_SECOES:
+            self._json({"erro": "palavra de voz desconhecida"}, 400)
+            return
+        dados = _voz_bytes(chave)
+        if not dados:
+            self._json({"erro": "voz gravada não instalada"}, 404)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(dados)))
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        self.wfile.write(dados)
+
     def _serve_icone(self, rota: str) -> None:
         """Serve o icone do proprio pacote (funciona tambem dentro do .pyz)."""
         nome = rota.lstrip("/")
@@ -935,6 +1306,12 @@ class Handler(BaseHTTPRequestHandler):
             ".aiff": "audio/aiff",
             ".aif": "audio/aiff",
             ".md": "text/markdown; charset=utf-8",
+            # a ficha e a cifra sao documentos para ler/imprimir, nao downloads:
+            # sem o tipo certo o `window.open` da tela baixa o arquivo em vez
+            # de abrir a aba onde o usuario faz Ctrl+P.
+            ".html": "text/html; charset=utf-8",
+            ".csv": "text/csv; charset=utf-8",
+            ".txt": "text/plain; charset=utf-8",
             ".json": "application/json",
             ".m3u": "audio/x-mpegurl",
             ".cue": "text/plain; charset=utf-8",
@@ -972,7 +1349,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {inicio}-{fim}/{tamanho}")
         if inline and suffix in (".jpg", ".jpeg", ".png", ".webp"):
             self.send_header("Cache-Control", "max-age=3600")
-        if suffix in (".mp3", ".mp4", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif"):
+        if suffix in (
+            ".mp3", ".mp4", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus",
+            ".aiff", ".aif",
+            ".html", ".md", ".txt", ".csv",
+        ):
             self.send_header("Content-Disposition", f'inline; filename="{target.name}"')
         self.end_headers()
         with target.open("rb") as fh:
@@ -1138,6 +1519,14 @@ def _dentro(alvo: Path, raiz: Path) -> bool:
         return False
 
 
+def _slug(texto: str) -> str:
+    """Nome seguro para arquivo (mesma regra do projeto multitrack)."""
+    import re as _re
+
+    limpo = _re.sub(r"[^\w\-. ]+", "", str(texto or "letra"), flags=_re.UNICODE).strip()
+    return (limpo or "letra")[:60].replace(" ", "_")
+
+
 def _relativo(caminho: Path, raiz: Path) -> str:
     """Caminho codificado para a rota /api/file ou /api/cover."""
     from urllib.parse import quote
@@ -1148,6 +1537,22 @@ def _relativo(caminho: Path, raiz: Path) -> str:
         return quote(rel, safe="/")
     except ValueError:
         return quote(resolvido.as_posix(), safe="/")
+
+
+def _voz_bytes(chave) -> bytes:
+    """WAV de uma palavra falada, lido do pacote (ou do disco em dev)."""
+    nome = f"voz/palavras/{chave}.wav"
+    base = Path(__file__).parent
+    direto = base / nome
+    if direto.is_file():
+        return direto.read_bytes()
+    try:
+        import pkgutil
+
+        dados = pkgutil.get_data(__name__, nome)
+    except (OSError, ValueError):
+        dados = None
+    return dados or b""
 
 
 def _page() -> str:

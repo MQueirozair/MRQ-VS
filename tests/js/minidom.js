@@ -26,6 +26,9 @@ class El {
     const estilo = {};
     estilo.setProperty = (k, v) => { estilo[k] = v; };
     estilo.getPropertyValue = (k) => estilo[k] || "";
+    // CSSStyleDeclaration também sabe REMOVER: o modo "todas as faixas" tira
+    // --altura-todas quando volta para a rolagem.
+    estilo.removeProperty = (k) => { delete estilo[k]; };
     this.style = estilo;
     this.dataset = {};
     this.classList = new ClassList(this);
@@ -61,7 +64,9 @@ class El {
   set innerHTML(v) {
     this._html = String(v == null ? "" : v);
     this.children = [];
-    const re = /<(div|span|input|button|option|canvas|svg|i|label|small|b)\b([^>]*)>/g;
+    // `textarea` entra aqui porque o painel de letra o usa: sem ele, o teste
+    // não achava o campo e o "colar letra" parecia quebrado (era o mini-DOM).
+    const re = /<(div|span|input|button|option|canvas|svg|i|label|small|b|textarea|select|a|p|h6)\b([^>]*)>/g;
     let m;
     while ((m = re.exec(this._html))) {
       const el = new El(m[1], this.ownerDocument);
@@ -72,6 +77,14 @@ class El {
       if (cl) el.className = cl[1];
       const val = /value="([^"]*)"/.exec(attrs);
       if (val) el.value = val[1];
+      // `selected` no HTML define o valor inicial do <select>, como no
+      // navegador. Sem isto, um teste de "o padrão é MP3" lia "" e culpava o
+      // produto por um buraco do mini-DOM.
+      if (m[1] === "option" && /\bselected\b/.test(attrs)) {
+        el.selected = true;
+        el._paiSelect = this;
+        this.value = el.value;
+      }
       // data-* vira dataset (o Studio lê compasso/inicio/agrupado por ali)
       const reData = /data-([\w-]+)="([^"]*)"/g;
       let d;
@@ -94,7 +107,17 @@ class El {
     }
   }
   get innerHTML() { return this._html; }
-  appendChild(el) { el.parentElement = this; this.children.push(el); return el; }
+  appendChild(el) {
+    el.parentElement = this;
+    this.children.push(el);
+    // Ids de elementos criados por JS (popover, menus) precisam ser
+    // encontráveis por getElementById — antes só `criar()` registrava, e todo
+    // painel montado em tempo de execução "não existia" para o teste.
+    if (el.id && this.ownerDocument && this.ownerDocument._ids) {
+      this.ownerDocument._ids.set(el.id, el);
+    }
+    return el;
+  }
   insertBefore(el, ref) {
     el.parentElement = this;
     const i = ref ? this.children.indexOf(ref) : -1;
@@ -105,9 +128,25 @@ class El {
     const i = this.children.indexOf(el);
     if (i >= 0) this.children.splice(i, 1);
     el.parentElement = null;
+    // a remoção vale para o ramo removido (o id do pai e o dos filhos somem
+    // do documento até alguém recriar), como no navegador
+    if (el._marcarRemovidos) el._marcarRemovidos();
+    if (el._desindexar) el._desindexar();
     return el;
   }
   remove() { if (this.parentElement) this.parentElement.removeChild(this); }
+  /** Marca o ramo inteiro como removido do documento. */
+  _marcarRemovidos() {
+    const doc = this.ownerDocument;
+    if (doc && doc._removidos && this.id) doc._removidos.add(this.id);
+    this.children.forEach((c) => c._marcarRemovidos && c._marcarRemovidos());
+  }
+  /** Remove do pai e do índice de ids — como o navegador faz. */
+  _desindexar() {
+    const doc = this.ownerDocument;
+    if (doc && doc._ids && this.id && doc._ids.get(this.id) === this) doc._ids.delete(this.id);
+    this.children.forEach((c) => c._desindexar());
+  }
   setAttribute(k, v) { this._attrs[k] = String(v); if (k === "class") this.className = v; }
   getAttribute(k) { return this._attrs[k] == null ? null : this._attrs[k]; }
   removeAttribute(k) { delete this._attrs[k]; }
@@ -127,15 +166,20 @@ class El {
   closest() { return null; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   querySelectorAll(sel) {
-    const out = [];
-    const passo = (el) => {
-      for (const c of el.children) {
-        if (casa(c, sel)) out.push(c);
-        passo(c);
+    // Busca nos filhos (e netos) DESTE elemento, reaproveitando o mesmo
+    // seletor do documento: o Studio faz `pop.querySelectorAll("[data-acao]")`
+    // e `select.querySelectorAll("option")`. Uma versão só de tag/id/classe
+    // deixava `[data-acao]` sem resultado e parecia que o painel não tinha
+    // botões.
+    const achados = [];
+    const anda = (el) => {
+      for (const filho of el.children || []) {
+        if (casa(filho, sel)) achados.push(filho);
+        anda(filho);
       }
     };
-    passo(this);
-    return out;
+    anda(this);
+    return achados;
   }
 }
 
@@ -214,9 +258,17 @@ class Document {
     this._ids = new Map();
     this.activeElement = null;
     this._listeners = {};
+    //: ids que saíram do DOM (o navegador devolve null para eles)
+    this._removidos = new Set();
+    this._ids = new Map();
   }
   createElement(tag) { return new El(tag, this); }
   getElementById(id) {
+    // Elemento REMOVIDO deixa de existir, como no navegador: o popover de
+    // letra, ao salvar, faz `pop.remove()` e o teste precisa enxergar isso.
+    // Ids nunca vistos continuam sendo criados (vários testes do Studio
+    // dependem de pegar qualquer controle por id).
+    if (this._removidos && this._removidos.has(id)) return null;
     if (!this._ids.has(id)) {
       const el = new El("div", this);
       el.id = id;
@@ -227,6 +279,7 @@ class Document {
     return this._ids.get(id);
   }
   criar(id, tag) {
+    if (this._removidos) this._removidos.delete(id);
     const el = new El(tag || "div", this);
     el.id = id;
     el._attrs.id = id;

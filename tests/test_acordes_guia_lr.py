@@ -146,3 +146,33 @@ def test_escrever_lr_separa_ensaio_na_esquerda_e_banda_na_direita(tmp_path):
     # Na segunda metade: direita tem a banda, esquerda está em silêncio
     assert float(np.max(np.abs(lido[n // 2 :, 1]))) > 0.4
     assert float(np.max(np.abs(lido[n // 2 :, 0]))) < 1e-4
+
+
+def test_lr_segue_o_formato_escolhido(tmp_path):
+    """Com MP3 escolhido, o L/R também sai em MP3.
+
+    Regressão: ele era SEMPRE PCM_16 e virava o maior arquivo da pasta de
+    áudio — maior que todos os stems somados, justamente para quem escolheu o
+    formato leve para levar no celular. Medido numa música de 20 s com 5
+    arquivos: 12,3 MB em WAV contra 4,5 MB em MP3.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    from mrqvs import guia
+
+    sr = 44100
+    t = np.arange(sr) / sr
+    banda = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+    ensaio = (0.3 * np.sin(2 * np.pi * 880 * t)).astype(np.float32)
+
+    wav = tmp_path / "ensaio.wav"
+    guia.escrever_lr(wav, sr, banda, ensaio, 1.0)
+    assert sf.info(wav).subtype == "PCM_16"
+
+    mp3 = tmp_path / "ensaio.mp3"
+    guia.escrever_lr(mp3, sr, banda, ensaio, 1.0, formato="mp3")
+    assert mp3.is_file() and mp3.stat().st_size > 500
+    assert mp3.read_bytes()[:3] in (b"ID3", b"\xff\xfb")
+    # e é bem menor: é o ponto da mudança
+    assert mp3.stat().st_size < wav.stat().st_size

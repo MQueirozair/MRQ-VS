@@ -326,3 +326,39 @@ def test_build_entrypoint_e_conferencia_de_nome():
     assert proc.returncode == 0, proc.stderr
     assert __version__ in proc.stdout
 
+
+
+def test_ficha_abre_no_navegador_em_vez_de_baixar(tmp_path, monkeypatch):
+    """A ficha e documento para imprimir, nao arquivo para baixar.
+
+    Regressao: `/api/file` servia `.html` como `application/octet-stream`, e o
+    `window.open` da tela baixava a ficha em vez de abrir a aba onde o usuario
+    faz Ctrl+P. Os textos do usuario continuam sendo baixados de proposito:
+    HTML servido na mesma origem pode carregar script.
+    """
+    monkeypatch.setenv("MRQVS_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(web, "_OUT_ROOT", tmp_path / "out")
+    out = tmp_path / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "Musica_ficha.html").write_text(
+        "<!doctype html><html><body><h1>Cifra</h1></body></html>", encoding="utf-8"
+    )
+    (out / "projeto.mrqvs.json").write_text('{"titulo": "x"}', encoding="utf-8")
+    (out / "letra.txt").write_text("linha um\nlinha dois\n", encoding="utf-8")
+    porta = _subir_servidor()
+    base = f"http://127.0.0.1:{porta}"
+
+    with urllib.request.urlopen(base + "/api/file?p=Musica_ficha.html", timeout=3) as r:
+        assert r.status == 200
+        assert r.headers.get("Content-Type", "").startswith("text/html")
+        assert "inline" in (r.headers.get("Content-Disposition") or "")
+        assert b"<h1>Cifra</h1>" in r.read()
+
+    with urllib.request.urlopen(base + "/api/file?p=letra.txt", timeout=3) as r:
+        assert r.headers.get("Content-Type", "").startswith("text/plain")
+        assert "inline" in (r.headers.get("Content-Disposition") or "")
+
+    # JSON continua como download: e dado do projeto, nao pagina
+    with urllib.request.urlopen(base + "/api/file?p=projeto.mrqvs.json", timeout=3) as r:
+        assert r.headers.get("Content-Type", "").startswith("application/json")
+        assert r.headers.get("Content-Disposition") is None

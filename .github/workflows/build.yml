@@ -95,16 +95,20 @@ jobs:
           pyinstaller --onefile --console --name mrq-vs \
             ${{ matrix.icon }} \
             --collect-all soundfile \
+            --collect-all lameenc \
             --add-data "src/mrqvs/web/index.html${{ matrix.sep }}mrqvs/web" \
             --add-data "src/mrqvs/web/favicon.ico${{ matrix.sep }}mrqvs/web" \
             --add-data "src/mrqvs/web/icone-192.png${{ matrix.sep }}mrqvs/web" \
             --add-data "src/mrqvs/web/icone-512.png${{ matrix.sep }}mrqvs/web" \
+            --add-data "src/mrqvs/web/voz/palavras${{ matrix.sep }}mrqvs/web/voz/palavras" \
             src/mrqvs/_build.py
       - name: Conferir o binário
         shell: bash
         run: |
           "${{ matrix.exe }}" --version
           "${{ matrix.exe }}" stems | head -3
+          # MP3 sem ffmpeg é o ponto: o binário tem de sair com o encoder
+          "${{ matrix.exe }}" doctor | grep -q "MP3" || exit 1
       - name: Gerar instalador Windows Setup (.exe com ícone na Área de Trabalho)
         if: matrix.name == 'Windows-x64'
         shell: pwsh

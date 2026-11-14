@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MRQ Audio Studio — Seleção das 30 ferramentas</title>
+<style>
+:root{
+  --bg:#0d1117; --bg2:#151b23; --card:#161d26; --card2:#1b2430;
+  --line:#26303c; --txt:#e6edf3; --dim:#8b98a5; --accent:#4c9aff; --accent2:#2f7de1;
+  --ok:#3fb950; --warn:#d29922; --bad:#f85149; --mid:#58a6ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+header{padding:18px 22px 10px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#111823,#0d1117)}
+h1{margin:0 0 4px;font-size:19px;font-weight:650;letter-spacing:.2px}
+.sub{color:var(--dim);font-size:12.5px;max-width:900px}
+.sub b{color:#c9d4e0;font-weight:600}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 22px;
+  border-bottom:1px solid var(--line);background:var(--bg2);position:sticky;top:0;z-index:40}
+button{font:inherit;font-size:12.5px;padding:7px 12px;border-radius:7px;border:1px solid var(--line);
+  background:var(--card2);color:var(--txt);cursor:pointer;transition:.15s}
+button:hover{background:#22303f;border-color:#33414f}
+button.primary{background:var(--accent2);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:hover{background:var(--accent)}
+button.ghost{background:transparent}
+button.danger:hover{border-color:var(--bad);color:#ffb4ae}
+.spacer{flex:1}
+main{padding:18px 22px 120px;max-width:1280px;margin:0 auto}
+section.cat{margin:0 0 26px}
+.cathead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px;
+  padding:8px 12px;border-radius:9px;background:linear-gradient(90deg,#18212c,#141b23);border:1px solid var(--line)}
+.cathead h2{margin:0;font-size:15px;font-weight:650}
+.cathead .count{color:var(--dim);font-size:12px}
+.cathead .mini{margin-left:auto;display:flex;gap:6px}
+.cathead .mini button{padding:4px 9px;font-size:11.5px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 13px;
+  display:flex;flex-direction:column;gap:8px;transition:.15s;position:relative}
+.card:hover{border-color:#33414f}
+.card.on{border-color:var(--accent);background:linear-gradient(180deg,#16222f,#151d26);
+  box-shadow:0 0 0 1px rgba(76,154,255,.35) inset}
+.card .top{display:flex;gap:9px;align-items:flex-start}
+.card input[type=checkbox]{appearance:none;width:19px;height:19px;min-width:19px;margin:2px 0 0;
+  border:1.5px solid #465565;border-radius:5px;background:#0f141b;cursor:pointer;position:relative}
+.card input[type=checkbox]:checked{background:var(--accent);border-color:var(--accent)}
+.card input[type=checkbox]:checked::after{content:"";position:absolute;left:5.5px;top:2px;width:5px;height:10px;
+  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.num{font-variant-numeric:tabular-nums;color:var(--dim);font-size:11.5px;font-weight:700;
+  background:#0f141b;border:1px solid var(--line);border-radius:5px;padding:1px 5px;margin-top:1px}
+.card h3{margin:0;font-size:14px;font-weight:650;line-height:1.25}
+.card h3 label{cursor:pointer}
+.card .desc{color:#b7c3cf;font-size:12.5px}
+.card .ben{font-size:12px;color:#8fd6a0;background:rgba(63,185,80,.07);border-left:2px solid rgba(63,185,80,.5);
+  padding:5px 8px;border-radius:0 5px 5px 0}
+.meta{display:flex;flex-wrap:wrap;gap:5px;font-size:11px}
+.tag{padding:2px 7px;border-radius:20px;border:1px solid var(--line);background:#10171f;color:#9fb0c0;white-space:nowrap}
+.tag.easy{color:#7ee787;border-color:rgba(63,185,80,.4);background:rgba(63,185,80,.08)}
+.tag.med{color:#e3c060;border-color:rgba(210,153,34,.4);background:rgba(210,153,34,.08)}
+.tag.hard{color:#ffab70;border-color:rgba(255,150,80,.4);background:rgba(255,150,80,.08)}
+.tag.very{color:#ff8b81;border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.08)}
+.tag.lic{color:#9fb0c0}
+.tag.lic.warn{color:#e3c060}
+.tag.gpl{color:#ff8b81;border-color:rgba(248,81,73,.45);background:rgba(248,81,73,.09)}
+.nota{font-weight:700;background:#1d2d40;color:#8ec2ff;border-color:#2b4a6b}
+.row{display:flex;gap:8px;align-items:center;margin-top:auto;padding-top:8px;border-top:1px solid #1e2732}
+.row label{font-size:11.5px;color:var(--dim)}
+select.prio{flex:1;font:inherit;font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);
+  background:#10171f;color:var(--txt);cursor:pointer}
+select.prio:disabled{opacity:.4;cursor:not-allowed}
+select.prio.ess{color:#7ee787;border-color:rgba(63,185,80,.5)}
+select.prio.alta{color:#8ec2ff;border-color:rgba(88,166,255,.5)}
+select.prio.media{color:#e3c060;border-color:rgba(210,153,34,.5)}
+select.prio.baixa{color:#a8b3bd}
+
+footer{position:fixed;bottom:0;left:0;right:0;background:rgba(13,17,23,.97);
+  border-top:1px solid var(--line);padding:10px 22px;z-index:50;backdrop-filter:blur(8px)}
+.totals{display:flex;gap:18px;flex-wrap:wrap;align-items:center;max-width:1280px;margin:0 auto}
+.tstat{display:flex;flex-direction:column;line-height:1.15}
+.tstat .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+.tstat .v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.tstat .v small{font-size:11px;font-weight:500;color:var(--dim)}
+.bars{display:flex;gap:7px;flex-wrap:wrap}
+.bar{font-size:11px;padding:3px 8px;border-radius:20px;background:#10171f;border:1px solid var(--line);color:#9fb0c0}
+#painel{display:none;position:fixed;inset:0;background:rgba(5,8,12,.82);z-index:100;
+  align-items:center;justify-content:center;padding:24px}
+#painel.on{display:flex}
+.dialog{background:var(--bg2);border:1px solid #33414f;border-radius:14px;max-width:820px;width:100%;
+  max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.dialog header{padding:16px 20px;border-bottom:1px solid var(--line);background:none}
+.dialog h2{margin:0;font-size:16px}
+.dialog .body{padding:16px 20px;overflow:auto;font-size:13px}
+.dialog .foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+textarea{width:100%;height:300px;background:#0b1016;color:#cfe0ee;border:1px solid var(--line);
+  border-radius:8px;padding:12px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical}
+.vazio{color:var(--dim);text-align:center;padding:40px 10px;font-size:13px}
+.hint{color:var(--dim);font-size:11.5px;margin-top:6px}
+@media(max-width:640px){.grid{grid-template-columns:1fr}main{padding:14px 14px 150px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Seleção das 30 ferramentas — MRQ Audio Studio</h1>
+  <div class="sub">
+    Marque <b>só</b> o que você quer implementar. Nada vem marcado: a recomendação do relatório
+    <b>não</b> é autorização. Clique em <b>Confirmar seleção</b> no fim e me passe o resumo gerado.
+    Detalhes de cada ferramenta em <code>docs/PESQUISA-30-FERRAMENTAS.md</code>.
+  </div>
+</header>
+
+<div class="toolbar">
+  <button id="bAll">Marcar as 30</button>
+  <button id="bNone" class="danger">Limpar tudo</button>
+  <div class="spacer"></div>
+  <span class="hint" id="hintTop">0 de 30 marcadas</span>
+</div>
+
+<main id="main"></main>
+
+<footer>
+  <div class="totals">
+    <div class="tstat"><span class="k">Selecionadas</span><span class="v" id="tCount">0 <small>/ 30</small></span></div>
+    <div class="tstat"><span class="k">Custo de licença</span><span class="v" id="tCost">R$ 0</span></div>
+    <div class="tstat"><span class="k">Esforço estimado</span><span class="v" id="tDays">0 <small>dias-dev</small></span></div>
+    <div class="tstat"><span class="k">Dificuldade</span><span class="v" id="tDiff" style="font-size:13px">—</span></div>
+    <div class="spacer"></div>
+    <button class="primary" id="bConfirm">Confirmar seleção</button>
+  </div>
+</footer>
+
+<div id="painel">
+  <div class="dialog">
+    <header><h2>Resumo da seleção</h2></header>
+    <div class="body" id="painelBody"></div>
+    <div class="foot">
+      <button id="bCopy">Copiar resumo</button>
+      <button id="bDownload">Baixar JSON</button>
+      <button class="primary" id="bClose">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const DADOS = [
+ {
+  "n": 1,
+  "nome": "Mel-Band RoFormer Kim",
+  "cat": "A",
+  "desc": "Separação de voz/instrumental de ponta, pesos MIT",
+  "ben": "Substitui o backend de voz com licença restrita por um de licença limpa",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU/GPU",
+  "nota": 8.1,
+  "dias": 6,
+  "lic": "MIT",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 2,
+  "nome": "audio-separator + UVR",
+  "cat": "A",
+  "desc": "Modelos UVR: karaoke, sopros, denoise, de-echo",
+  "ben": "Preenche guitarra/piano/karaoke com licença MIT + crédito",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU/GPU",
+  "nota": 8.0,
+  "dias": 5,
+  "lic": "MIT + crédito",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 3,
+  "nome": "SCNet / Band-SCNet",
+  "cat": "A",
+  "desc": "Separação 4 stems, variante causal em tempo real",
+  "ben": "Baixo e bateria de verdade; único caminho para separação ao vivo",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, GPU recomendada",
+  "nota": 6.6,
+  "dias": 8,
+  "lic": "MIT código / pesos ⚠️",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 4,
+  "nome": "AudioSep",
+  "cat": "A",
+  "desc": "Separa por descrição textual do instrumento",
+  "ben": "\"Tirar o violão\" por frase, sem stems fixos",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, ~6 GB VRAM",
+  "nota": 6.1,
+  "dias": 7,
+  "lic": "MIT código / pesos ⚠️",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 5,
+  "nome": "vocal-remover (VR)",
+  "cat": "A",
+  "desc": "Separação leve voz/instrumental em CPU",
+  "ben": "Fallback garantido em qualquer máquina, licença simples",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU",
+  "nota": 6.6,
+  "dias": 3,
+  "lic": "MIT",
+  "tipo": "Aplicativo auxiliar"
+ },
+ {
+  "n": 6,
+  "nome": "PANNs",
+  "cat": "A",
+  "desc": "Reconhece instrumentos e contexto no áudio",
+  "ben": "\"Raio-X\" do mix: quais instrumentos tocam",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU ok",
+  "nota": 6.4,
+  "dias": 5,
+  "lic": "MIT código / pesos ⚠️",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 7,
+  "nome": "librosa",
+  "cat": "B",
+  "desc": "BPM, onset e f0 de referência (pyin, beat_track)",
+  "ben": "BPM e afinação confiáveis em material sincopado",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS (fixar <1.0 p/ py3.10)",
+  "nota": 8.4,
+  "dias": 3,
+  "lic": "ISC",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 8,
+  "nome": "CREMA",
+  "cat": "B",
+  "desc": "Tonalidade por CNN (24 classes)",
+  "ben": "Acerta relativa maior/menor onde a heurística erra",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, precisa TF",
+  "nota": 6.7,
+  "dias": 4,
+  "lic": "ISC/BSD-2 (divergência)",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 9,
+  "nome": "autochord",
+  "cat": "B",
+  "desc": "Acordes por bi-LSTM, 25 classes + inversões",
+  "ben": "Cifra confiável em gravação ao vivo",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS (vamp é risco)",
+  "nota": 7.0,
+  "dias": 4,
+  "lic": "Apache-2.0",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 10,
+  "nome": "MSAF",
+  "cat": "B",
+  "desc": "Segmentação de seções não supervisionada",
+  "ben": "Fronteiras de seção melhores para o guia",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 7.3,
+  "dias": 3,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 11,
+  "nome": "basic-pitch",
+  "cat": "B",
+  "desc": "Transcrição áudio→MIDI com bends",
+  "ben": "Cria do zero a exportação MIDI/partitura",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU/GPU",
+  "nota": 8.6,
+  "dias": 5,
+  "lic": "Apache-2.0",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 12,
+  "nome": "ChordPro",
+  "cat": "C",
+  "desc": "Padrão de cifra em texto (acordes inline)",
+  "ben": "Formato de cifra interoperável com apps de mercado",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS (Perl no CLI)",
+  "nota": 7.4,
+  "dias": 2,
+  "lic": "Artistic-2.0",
+  "tipo": "Aplicativo auxiliar"
+ },
+ {
+  "n": 13,
+  "nome": "chord-symbol",
+  "cat": "C",
+  "desc": "Parse, transposição e enarmonia de cifra (JS)",
+  "ben": "Acaba com bug de transpor cifra no front",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Navegador, zero deps",
+  "nota": 8.4,
+  "dias": 2,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 14,
+  "nome": "WhisperX",
+  "cat": "C",
+  "desc": "ASR + alinhamento forçado por palavra",
+  "ben": "Letra sincronizada por palavra no Studio",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, GPU recomendada",
+  "nota": 7.3,
+  "dias": 8,
+  "lic": "BSD-2 (pyannote CC-BY opcional)",
+  "tipo": "Modelo de IA local"
+ },
+ {
+  "n": 15,
+  "nome": "music21",
+  "cat": "C",
+  "desc": "Teoria harmônica, numerais romanos, MusicXML",
+  "ben": "Sugestão de progressão e análise harmônica de verdade",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS (9.9.x p/ py3.10)",
+  "nota": 8.1,
+  "dias": 4,
+  "lic": "BSD-3-Clause",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 16,
+  "nome": "Airwindows",
+  "cat": "D",
+  "desc": "~200 efeitos em C++ (EQ, comp, saturação)",
+  "ben": "Base auditável para EQ/compressor próprios",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS (C++)",
+  "nota": 6.1,
+  "dias": 6,
+  "lic": "MIT",
+  "tipo": "Plugin"
+ },
+ {
+  "n": 17,
+  "nome": "pedalboard",
+  "cat": "D",
+  "desc": "Efeitos JUCE + host de VST3/AU em Python",
+  "ben": "EQ/compressor/reverb rápidos de integrar",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS — mas GPL-3.0",
+  "nota": 5.6,
+  "dias": 5,
+  "lic": "GPL-3.0 ❌",
+  "tipo": "Serviço externo opcional"
+ },
+ {
+  "n": 18,
+  "nome": "DeepFilterNet",
+  "cat": "D",
+  "desc": "Redução de ruído neural em 48 kHz",
+  "ben": "Limpa gravação de ensaio/culto",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, CPU (RTF 0,19)",
+  "nota": 7.4,
+  "dias": 5,
+  "lic": "MIT OR Apache-2.0",
+  "tipo": "Aplicativo auxiliar"
+ },
+ {
+  "n": 19,
+  "nome": "AudaLign",
+  "cat": "D",
+  "desc": "Alinhamento de captações por fingerprint",
+  "ben": "Acaba o desalinhamento entre stems",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 7.0,
+  "dias": 3,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 20,
+  "nome": "pyroomacoustics.sync",
+  "cat": "D",
+  "desc": "GCC-PHAT: atraso sub-amostra e sinal de fase",
+  "ben": "Detecta e corrige canal invertido no mix",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 7.3,
+  "dias": 2,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 21,
+  "nome": "Matchering",
+  "cat": "E",
+  "desc": "Masterização por faixa de referência",
+  "ben": "Master automático sem plugin pago",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS — mas GPL-3.0",
+  "nota": 5.7,
+  "dias": 3,
+  "lic": "GPL-3.0 ❌",
+  "tipo": "Serviço externo opcional"
+ },
+ {
+  "n": 22,
+  "nome": "pyloudnorm",
+  "cat": "E",
+  "desc": "LUFS ITU-R BS.1770-4 e normalização",
+  "ben": "Mede e normaliza loudness do release",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, 1 arquivo",
+  "nota": 9.0,
+  "dias": 1,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 23,
+  "nome": "Essentia",
+  "cat": "E",
+  "desc": "250+ descritores espectrais/tonais",
+  "ben": "Análise espectral rica — se a licença permitir",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win não verificado — AGPL-3.0",
+  "nota": 4.7,
+  "dias": 6,
+  "lic": "AGPL-3.0 ❌",
+  "tipo": "Serviço externo opcional"
+ },
+ {
+  "n": 24,
+  "nome": "Surge XT",
+  "cat": "F",
+  "desc": "Sintetizador completo (VST3/AU/CLAP)",
+  "ben": "Primeiro instrumento virtual tocável no MRQ",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS — GPL-3.0",
+  "nota": 6.0,
+  "dias": 3,
+  "lic": "GPL-3.0 ❌",
+  "tipo": "Plugin"
+ },
+ {
+  "n": 25,
+  "nome": "sfizz",
+  "cat": "F",
+  "desc": "Sampler SFZ com render offline",
+  "ben": "Instrumentos reais tocando MIDI, offline",
+  "dif": "Médio",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 7.3,
+  "dias": 4,
+  "lic": "BSD-2-Clause",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 26,
+  "nome": "CLAP",
+  "cat": "F",
+  "desc": "Padrão aberto de plugins (ABI C, MIT)",
+  "ben": "Base para hospedar plugins no futuro",
+  "dif": "Muito avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 3.9,
+  "dias": 10,
+  "lic": "MIT",
+  "tipo": "Plugin"
+ },
+ {
+  "n": 27,
+  "nome": "beets",
+  "cat": "G",
+  "desc": "Biblioteca musical: tags, busca, deduplicação",
+  "ben": "Gestão de repertório sem escrever CRUD",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS",
+  "nota": 7.6,
+  "dias": 3,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 28,
+  "nome": "Ableton Link (aalink)",
+  "cat": "G",
+  "desc": "Sincronismo de tempo/beat na rede local",
+  "ben": "Tocar junto com Ableton com o mesmo pulso",
+  "dif": "Avançado",
+  "custo": "R$ 0",
+  "compat": "Win+macOS — GPLv2+",
+  "nota": 5.0,
+  "dias": 7,
+  "lic": "GPLv2+ ❌",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 29,
+  "nome": "python-rtmidi",
+  "cat": "G",
+  "desc": "MIDI I/O real: clock, PC, CC, portas virtuais",
+  "ben": "Click/contagem no in-ear e automação de teclado",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS, wheels prontos",
+  "nota": 8.6,
+  "dias": 2,
+  "lic": "MIT",
+  "tipo": "Biblioteca incorporada"
+ },
+ {
+  "n": 30,
+  "nome": "MuseScore Studio CLI",
+  "cat": "G",
+  "desc": "Export headless para PDF, PNG, MIDI, áudio",
+  "ben": "Partitura e cifra em PDF com qualidade de publicação",
+  "dif": "Fácil",
+  "custo": "R$ 0",
+  "compat": "Win+macOS — GPL-3.0",
+  "nota": 7.0,
+  "dias": 3,
+  "lic": "GPL-3.0 ❌",
+  "tipo": "Aplicativo auxiliar"
+ }
+];
+const CATS = {
+ "A": "A — IA e separação musical",
+ "B": "B — Análise musical e composição",
+ "C": "C — Cifras, letras e harmonia",
+ "D": "D — Produção, edição e mixagem",
+ "E": "E — Masterização e qualidade",
+ "F": "F — Instrumentos virtuais e efeitos",
+ "G": "G — Recursos profissionais e apresentação"
+};
+
+const PRIOS = [
+  {v:"",      t:"— prioridade —"},
+  {v:"essencial", t:"Essencial", c:"ess"},
+  {v:"alta",  t:"Alta",  c:"alta"},
+  {v:"media", t:"Média", c:"media"},
+  {v:"baixa", t:"Baixa", c:"baixa"}
+];
+
+const difCls = d => d==="Fácil"?"easy":d==="Médio"?"med":d==="Avançado"?"hard":"very";
+const licCls = l => l.includes("GPL")||l.includes("AGPL")?"gpl":(l.includes("⚠️")||l.includes("divergência")?"warn":"");
+const esc = s => String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+const main = document.getElementById("main");
+
+function render(){
+  const porCat = {};
+  DADOS.forEach(d=>(porCat[d.cat] = porCat[d.cat]||[]).push(d));
+
+  Object.keys(CATS).forEach(k=>{
+    const lista = porCat[k]||[];
+    const sec = document.createElement("section");
+    sec.className = "cat";
+    sec.innerHTML = `
+      <div class="cathead">
+        <h2>${esc(CATS[k])}</h2>
+        <span class="count" data-catcount="${k}"></span>
+        <div class="mini">
+          <button data-cat-sel="${k}">marcar categoria</button>
+          <button data-cat-clr="${k}" class="ghost">limpar categoria</button>
+        </div>
+      </div>
+      <div class="grid"></div>`;
+    const grid = sec.querySelector(".grid");
+
+    lista.forEach(d=>{
+      const card = document.createElement("div");
+      card.className = "card";
+      card.dataset.n = d.n;
+      card.innerHTML = `
+        <div class="top">
+          <input type="checkbox" id="ck${d.n}" value="${d.n}">
+          <span class="num">#${d.n}</span>
+          <h3><label for="ck${d.n}">${esc(d.nome)}</label></h3>
+        </div>
+        <div class="desc">${esc(d.desc)}</div>
+        <div class="ben">${esc(d.ben)}</div>
+        <div class="meta">
+          <span class="tag ${difCls(d.dif)}">${esc(d.dif)}</span>
+          <span class="tag">${esc(d.custo)}</span>
+          <span class="tag">${esc(d.compat)}</span>
+          <span class="tag lic ${licCls(d.lic)}">${esc(d.lic)}</span>
+          <span class="tag nota">nota ${d.nota.toFixed(1)}</span>
+          <span class="tag">${d.dias} dias</span>
+        </div>
+        <div class="row">
+          <label for="prio${d.n}">Prioridade</label>
+          <select class="prio" id="prio${d.n}" disabled>
+            ${PRIOS.map(p=>`<option value="${p.v}">${p.t}</option>`).join("")}
+          </select>
+        </div>`;
+      grid.appendChild(card);
+
+      const ck = card.querySelector("input");
+      const pr = card.querySelector("select");
+      ck.addEventListener("change", ()=>{
+        card.classList.toggle("on", ck.checked);
+        pr.disabled = !ck.checked;
+        if(!ck.checked){ pr.value = ""; pr.className = "prio"; }
+        atualizar();
+      });
+      pr.addEventListener("change", ()=>{
+        pr.className = "prio " + (PRIOS.find(p=>p.v===pr.value)?.c||"");
+        atualizar();
+      });
+    });
+    main.appendChild(sec);
+  });
+
+  document.getElementById("bAll").onclick = ()=>setAll(true);
+  document.getElementById("bNone").onclick = ()=>setAll(false);
+  main.addEventListener("click", e=>{
+    const sel = e.target.dataset.catSel, clr = e.target.dataset.catClr;
+    if(sel) setCat(sel,true);
+    if(clr) setCat(clr,false);
+  });
+  document.getElementById("bConfirm").onclick = abrirResumo;
+  document.getElementById("bClose").onclick = ()=>document.getElementById("painel").classList.remove("on");
+  document.getElementById("bCopy").onclick = copiar;
+  document.getElementById("bDownload").onclick = baixar;
+  document.getElementById("painel").addEventListener("click", e=>{
+    if(e.target.id==="painel") e.currentTarget.classList.remove("on");
+  });
+  atualizar();
+}
+
+function setAll(v){
+  document.querySelectorAll('.card input[type=checkbox]').forEach(ck=>{
+    if(ck.checked!==v){ ck.checked=v; ck.dispatchEvent(new Event("change")); }
+  });
+}
+function setCat(cat,v){
+  document.querySelectorAll(`.card[data-n]`).forEach(card=>{
+    const d = DADOS.find(x=>String(x.n)===card.dataset.n);
+    if(!d || d.cat!==cat) return;
+    const ck = card.querySelector("input");
+    if(ck.checked!==v){ ck.checked=v; ck.dispatchEvent(new Event("change")); }
+  });
+}
+
+function selecionadas(){
+  return DADOS.filter(d=>document.getElementById("ck"+d.n)?.checked)
+    .map(d=>({...d, prio: document.getElementById("prio"+d.n).value}));
+}
+
+function atualizar(){
+  const sel = selecionadas();
+  document.getElementById("tCount").innerHTML = `${sel.length} <small>/ 30</small>`;
+  document.getElementById("hintTop").textContent = `${sel.length} de 30 marcadas`;
+  document.getElementById("tCost").textContent = "R$ 0";
+  const dias = sel.reduce((a,d)=>a+d.dias,0);
+  document.getElementById("tDays").innerHTML = `${dias} <small>dias-dev</small>`;
+  const cont = {Fácil:0, Médio:0, Avançado:0, "Muito avançado":0};
+  sel.forEach(d=>cont[d.dif]++);
+  document.getElementById("tDiff").textContent = sel.length
+    ? Object.entries(cont).filter(([,v])=>v).map(([k,v])=>`${v} ${k.toLowerCase()}`).join(" · ")
+    : "—";
+
+  Object.keys(CATS).forEach(k=>{
+    const el = document.querySelector(`[data-catcount="${k}"]`);
+    if(el){
+      const tot = DADOS.filter(d=>d.cat===k).length;
+      const n = sel.filter(d=>d.cat===k).length;
+      el.textContent = `${n}/${tot}`;
+    }
+  });
+  const gpl = sel.filter(d=>d.lic.includes("GPL"));
+  const aviso = document.getElementById("avisoGpl");
+  if(aviso) aviso.remove();
+  if(gpl.length){
+    const div = document.createElement("div");
+    div.id="avisoGpl"; div.className="hint";
+    div.style.cssText = "color:#ffb4ae;padding:0 22px 10px";
+    div.textContent = `Atenção: ${gpl.length} selecionada(s) têm licença GPL/AGPL (${gpl.map(d=>"#"+d.n).join(", ")}). Vão precisar de isolamento por processo ou licença alternativa.`;
+    document.querySelector("footer").before(div);
+  }
+}
+
+function resumoTexto(){
+  const sel = selecionadas();
+  if(!sel.length) return "Nenhuma ferramenta selecionada.";
+  const L = [];
+  L.push("SELEÇÃO — MRQ Audio Studio (30 ferramentas)");
+  L.push(`Total: ${sel.length} ferramenta(s) | custo de licença: R$ 0 | esforço: ${sel.reduce((a,d)=>a+d.dias,0)} dias-dev`);
+  L.push("");
+  Object.keys(CATS).forEach(k=>{
+    const doCat = sel.filter(d=>d.cat===k);
+    if(!doCat.length) return;
+    L.push(`[${CATS[k]}]`);
+    doCat.forEach(d=>{
+      const p = d.prio ? d.prio.toUpperCase() : "sem prioridade definida";
+      L.push(`  #${d.n} ${d.nome} — prioridade: ${p} — ${d.dif}, ${d.dias} dias — licença: ${d.lic}`);
+    });
+    L.push("");
+  });
+  const semPrio = sel.filter(d=>!d.prio);
+  if(semPrio.length) L.push(`⚠ ${semPrio.length} sem prioridade definida: ${semPrio.map(d=>"#"+d.n).join(", ")}`);
+  L.push("");
+  L.push("Confirmo esta seleção para o plano de implementação.");
+  return L.join("\n");
+}
+
+function abrirResumo(){
+  const sel = selecionadas();
+  const body = document.getElementById("painelBody");
+  if(!sel.length){
+    body.innerHTML = `<div class="vazio">Você não marcou nenhuma ferramenta.<br>
+      Feche esta janela e marque o que quiser implementar.</div>`;
+  } else {
+    body.innerHTML = `<p style="margin:0 0 10px;color:#b7c3cf">
+      Confira abaixo. Se estiver certo, copie (ou baixe o JSON) e me envie —
+      só então eu escrevo o plano de implementação.</p>
+      <textarea id="txtResumo" readonly>${esc(resumoTexto())}</textarea>`;
+  }
+  document.getElementById("painel").classList.add("on");
+}
+
+function copiar(){
+  const t = document.getElementById("txtResumo");
+  if(!t) return;
+  t.select();
+  navigator.clipboard?.writeText(t.value).then(()=>{
+    document.getElementById("bCopy").textContent = "copiado ✓";
+    setTimeout(()=>document.getElementById("bCopy").textContent="Copiar resumo",1500);
+  }).catch(()=>document.execCommand("copy"));
+}
+function baixar(){
+  const sel = selecionadas();
+  const blob = new Blob([JSON.stringify({gerado:new Date().toISOString(), total:sel.length,
+    custo:"R$ 0", dias_dev: sel.reduce((a,d)=>a+d.dias,0), ferramentas: sel},null,2)],
+    {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "mrq-selecao-30-ferramentas.json";
+  a.click();
+}
+
+render();
+</script>
+</body>
+</html>

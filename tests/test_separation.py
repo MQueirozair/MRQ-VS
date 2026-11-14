@@ -1,4 +1,3 @@
-import shutil
 
 import numpy as np
 import pytest
@@ -130,16 +129,24 @@ def test_export_wav_escreve_arquivo(tmp_path):
 
 
 def test_capacidade_de_export_sem_ffmpeg(monkeypatch):
+    """Sem ffmpeg: WAV sempre, MP3 pelo encoder nativo, MP4 não.
+
+    O contrato antigo exigia `ok_mp3 is False` — e era exatamente esse o
+    defeito: o programa separava áudio e não exportava o formato mais comum
+    do mundo. O MP3 passou a ter encoder próprio (`lameenc`); o MP4 continua
+    dependendo do ffmpeg, porque é vídeo (libx264 + filtro showwaves).
+    """
     ok_wav, _ = export.check_export_capabilities("wav")
     assert ok_wav
-    if not shutil.which("ffmpeg"):  # ambiente sem ffmpeg
-        ok_mp3, motivo = export.check_export_capabilities("mp3")
-        assert ok_mp3 is False
-        assert "ffmpeg" in motivo
     monkeypatch.setattr(export.media, "have_ffmpeg", lambda: False)
-    ok_mp3, motivo = export.check_export_capabilities("mp3")
-    assert ok_mp3 is False
-    assert "ffmpeg" in motivo
+
+    ok_mp3, motivo_mp3 = export.check_export_capabilities("mp3")
+    assert ok_mp3 is True
+    assert "lameenc" in motivo_mp3 or "ffmpeg" in motivo_mp3
+
+    ok_mp4, motivo_mp4 = export.check_export_capabilities("mp4")
+    assert ok_mp4 is False
+    assert "ffmpeg" in motivo_mp4
 
 
 def _install_fake_ffmpeg(tmp_path, monkeypatch, supports=("libmp3lame", "libx264")):
@@ -203,11 +210,21 @@ def test_export_mp4_cai_para_fundo_solido_sem_showwaves(tmp_path, monkeypatch):
     assert out.suffix == ".mp4" and out.exists()
 
 
-def test_export_sem_ffmpeg_falha_cedo(tmp_path, monkeypatch):
-    monkeypatch.setenv("PATH", str(tmp_path / "vazio"))
-    assert export.check_export_capabilities("mp3")[0] is False
+def test_export_mp3_sem_ffmpeg_funciona_e_mp4_falha_cedo(tmp_path, monkeypatch):
+    """MP3 sai pelo encoder nativo; MP4 sem ffmpeg falha ANTES de trabalhar."""
+    pytest.importorskip("lameenc")
+    monkeypatch.setattr(export.media, "have_ffmpeg", lambda: False)
+    # `require_ffmpeg` também: neste ambiente o imageio-ffmpeg existe de verdade
+    monkeypatch.setattr(
+        export.media,
+        "require_ffmpeg",
+        lambda: (_ for _ in ()).throw(export.media.FFmpegMissing("sem ffmpeg")),
+    )
+    audio = np.zeros(44100, np.float32)
+    mp3 = export.export_audio(audio, 44100, tmp_path / "x", export.ExportOptions(fmt="mp3"))
+    assert mp3.suffix == ".mp3" and mp3.stat().st_size > 500
     with pytest.raises(export.FFmpegMissing):
-        export.export_audio(np.zeros(100, np.float32), 44100, tmp_path / "x", export.ExportOptions(fmt="mp3"))
+        export.export_audio(audio, 44100, tmp_path / "y", export.ExportOptions(fmt="mp4"))
 
 
 def test_runtime_congelado_nao_chama_o_proprio_executavel(monkeypatch):
