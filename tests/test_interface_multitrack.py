@@ -533,3 +533,113 @@ def test_rotas_novas_existem_no_servidor():
         "_transcrever_letra",
     ):
         assert f"def {handler}" in fonte, f"handler {handler} ausente"
+
+
+# --------------------------------------------------------------------------
+# 6. Mixer ao vivo: offset por faixa, seek, loop e clique sintetizado
+# --------------------------------------------------------------------------
+def test_offset_da_faixa_desloca_o_audio_de_verdade():
+    """Faixa com offset 0,5 s tem de começar 0,5 s depois na régua."""
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        const vocais = S.todasAsFaixas().find(f => f.id === "vocals");
+        vocais.offset = 0.5;
+        S.tempoLocalDaFaixa(vocais, 2.0);  // 2,0 na régua = 1,5 no arquivo
+        S.studioBuscar(2.0);
+        S.__info = {
+          local: S.tempoLocalDaFaixa(vocais, 2.0),
+          antesDoOffset: S.tempoLocalDaFaixa(vocais, 0.2),
+          el: vocais.el.currentTime,
+          regua: S.Studio.tempo,
+        };
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert info["local"] == 1.5
+    assert info["antesDoOffset"] == 0.0  # ainda não entrou: fica no zero
+    assert round(info["el"], 3) == 1.5   # o elemento recebeu o tempo local
+    assert info["regua"] == 2.0          # a régua continua no tempo da música
+
+
+def test_seek_reposiciona_todas_as_faixas():
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        S.studioBuscar(3.5);
+        S.__info = {
+          regua: S.Studio.tempo,
+          posicoes: S.todasAsFaixas().filter(f => f.el).map(f => ({
+            id: f.id, t: f.el.currentTime, offset: f.offset || 0})),
+        };
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert info["regua"] == 3.5
+    for faixa in info["posicoes"]:
+        assert round(faixa["t"], 3) == round(3.5 - faixa["offset"], 3), faixa
+
+
+def test_loop_persistido_volta_para_o_ponto_a():
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        await esperar();
+        S.Studio.tocando = true;
+        S.Studio.clockOffset = 0;
+        S.Studio.clockInicio = S.__ctx.currentTime;
+        S.Studio.loop = true;
+        S.__info = {a: S.Studio.loopA, b: S.Studio.loopB};
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert (info["a"], info["b"]) == (1.0, 2.5)
+
+
+def test_faixa_mudo_nao_recebe_ganho():
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        const drums = S.todasAsFaixas().find(f => f.id === "drums");
+        const vocais = S.todasAsFaixas().find(f => f.id === "vocals");
+        S.aplicarMix();
+        S.__info = {drums: drums.ganho.gain.value, vocais: vocais.ganho.gain.value};
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert info["drums"] == 0        # mudo no projeto salvo
+    assert info["vocais"] > 0        # os vocais entram
+
+
+def test_clique_sintetizado_respeita_mudo_e_solo():
+    """A faixa Click não tem arquivo: o M/S precisa valer no grafo dela."""
+    saida = _rodar(
+        """
+        S.studioMontar(%s);
+        await esperar();
+        const clique = S.todasAsFaixas().find(f => f.id === "clique");
+        clique.solo = true;
+        S.aplicarMix();
+        const vocais = S.todasAsFaixas().find(f => f.id === "vocals");
+        S.__info = {clique: clique.ganho.gain.value, vocais: vocais.ganho.gain.value,
+                    temEl: !!clique.el, sintetica: clique.sintetica};
+        """
+        % json.dumps(DADOS),
+        dica="return S.__info;",
+    )
+    info = saida["S"]
+    assert info["sintetica"] is True and info["temEl"] is False
+    assert info["clique"] > 0     # solo no clique: ele toca
+    assert info["vocais"] == 0    # e a banda cala

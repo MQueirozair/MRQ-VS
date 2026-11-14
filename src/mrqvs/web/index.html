@@ -4581,7 +4581,8 @@ async function studioTocar(){
     for (const f of todasAsFaixas()){
       if (!f.el) continue;
       try{
-        if (Math.abs((f.el.currentTime || 0) - base) > 0.02) f.el.currentTime = base;
+        const alvoLocal = tempoLocalDaFaixa(f, base);
+        if (Math.abs((f.el.currentTime || 0) - alvoLocal) > 0.02) f.el.currentTime = alvoLocal;
         const p = f.el.play();
         if (p && p.catch) p.catch(() => {});
       }catch(_){}
@@ -4653,7 +4654,9 @@ function iniciarRelogio(){
                     && Studio.loopB > Studio.loopA + 0.05;
     if (usaLoop && Studio.tempo >= Studio.loopB - 0.03){
       Studio.tempo = Studio.loopA;
-      todasAsFaixas().forEach(f => { if (f.el){ try{ f.el.currentTime = Studio.loopA; }catch(_){} } });
+      todasAsFaixas().forEach(f => {
+        if (f.el){ try{ f.el.currentTime = tempoLocalDaFaixa(f, Studio.loopA); }catch(_){} }
+      });
       reancorarRelogio(Studio.loopA);
     }
     const noLoop = usaLoop && Studio.loopB < (Studio.duracao || 0) - 0.05;
@@ -4681,20 +4684,33 @@ function reancorarRelogio(seg){
   Studio.proximoPulso = pulsoEm(Studio.clockOffset);
 }
 
+/** Em que segundo do ARQUIVO a faixa deve estar quando a régua marca `t`.
+ *
+ *  `offset` positivo = a faixa entra atrasada (começa em `offset` da régua),
+ *  então antes disso ela fica parada no zero. Isto é o "nudge" do mixer
+ *  multitrack: alinhar um take importado que entrou 200 ms atrasado, ou um
+ *  stem que o modelo devolveu com atraso de fase.
+ */
+function tempoLocalDaFaixa(f, t){
+  const inicio = Number(f.offset) || 0;
+  return Math.max(0, (Number(t) || 0) - inicio);
+}
+
 /** Mantém os elementos de áudio colados no relógio do AudioContext. */
 function sincronizarElementos(){
   if (!Studio.tocando) return;
   const t = Studio.tempo;
   for (const f of todasAsFaixas()){
     if (!f.el) continue;
-    const desvio = (f.el.currentTime || 0) - t;
+    const alvo = tempoLocalDaFaixa(f, t);
+    const desvio = (f.el.currentTime || 0) - alvo;
     if (f.el.paused){
-      try{ f.el.currentTime = t; f.el.play().catch(() => {}); }catch(_){}
+      try{ f.el.currentTime = alvo; f.el.play().catch(() => {}); }catch(_){}
       continue;
     }
     // 60 ms é o limiar audível de "fora de sincronia" entre stems
     if (Math.abs(desvio) > 0.06){
-      try{ f.el.currentTime = t; }catch(_){}
+      try{ f.el.currentTime = alvo; }catch(_){}
     }
   }
 }
@@ -4782,7 +4798,7 @@ function studioBuscar(seg){
   Studio.finalizado = false;
   for (const f of todasAsFaixas()){
     if (!f.el) continue;
-    try{ f.el.currentTime = seg; }catch(_){}
+    try{ f.el.currentTime = tempoLocalDaFaixa(f, seg); }catch(_){}
   }
   if (Studio.tocando){
     reancorarRelogio(seg);
@@ -5360,11 +5376,26 @@ async function studioCarregarProjeto(d){
     Studio.loopA = Number(proj.loop.inicio);
     Studio.loopB = Number(proj.loop.fim);
   }
-  // offset/fade/ordem das faixas: a ordem é aplicada no DOM, o resto no áudio
+  // offset/fade/ordem das faixas: a ordem é aplicada no DOM, o resto no áudio.
+  // O `.mrqvs.json` é a FONTE DA VERDADE do mixer (o `edicoes.json` é o
+  // caminho antigo): por isso volume/pan/mute/solo também vêm daqui. Antes só
+  // os campos novos vinham, e um mudo salvo no projeto era desfeito pela
+  // leitura do edicoes.json (que traz "mudo: false" de uma sessão anterior).
   const porId = new Map(((proj.faixas) || []).map(f => [f.id, f]));
   todasAsFaixas().forEach(f => {
     const salva = porId.get(f.id);
     if (!salva) return;
+    if (salva.volume != null) f.volume = Number(salva.volume);
+    if (salva.pan != null) f.pan = Number(salva.pan);
+    if (salva.mudo != null) f.mudo = !!salva.mudo;
+    if (salva.solo != null) f.solo = !!salva.solo;
+    if (salva.oculta != null) Studio.ocultas[f.id] = !!salva.oculta;
+    const v = f.linha.querySelector(".faixa-vol");
+    if (v) v.value = Math.round(f.volume * 100);
+    const p = f.linha.querySelector(".faixa-pan");
+    if (p){ p.value = Math.round(f.pan * 100); p.dataset.centro = f.pan === 0 ? "1" : "0"; }
+    if (typeof rotuloVolume === "function") rotuloVolume(f);
+    if (typeof rotuloPan === "function") rotuloPan(f);
     f.offset = Number(salva.offset) || 0;
     f.fadeIn = Number(salva.fade_in) || 0;
     f.fadeOut = Number(salva.fade_out) || 0;
@@ -5375,6 +5406,8 @@ async function studioCarregarProjeto(d){
     }
   });
   studioReordenarDOM();
+  aplicarMix();
+  studioSincronizarControles();
   studioDesenharTrilhas();
   studioAtualizarLinksExportar(d);
 }
