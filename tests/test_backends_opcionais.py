@@ -94,16 +94,21 @@ def test_mp3_sem_ffmpeg_usa_encoder_nativo(tmp_path, monkeypatch):
     assert dados[:3] in (b"ID3", b"\xff\xfb")
     assert len(dados) > 4000  # não é um arquivo vazio com cabeçalho
 
-    # continua sendo áudio válido: decodifica e confere a duração
-    wav = tmp_path / "volta.wav"
-    subprocess.run(
-        [media.require_ffmpeg(), "-hide_banner", "-loglevel", "error", "-y",
-         "-i", str(destino), str(wav)],
-        check=False,
-    )
-    if wav.exists():
-        info = sf.info(wav)
-        assert 0.9 < info.duration < 1.15
+    # Continua sendo áudio válido: decodifica e confere a duração. No CI pode
+    # não haver ffmpeg nenhum (é justamente o ambiente que motivou o encoder
+    # nativo), então esta conferência é opcional — o que se exige sempre é o
+    # cabeçalho e o tamanho acima.
+    ffmpeg = media.find_tool("ffmpeg")
+    if ffmpeg:
+        wav = tmp_path / "volta.wav"
+        subprocess.run(
+            [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
+             "-i", str(destino), str(wav)],
+            check=False,
+        )
+        if wav.exists():
+            info = sf.info(wav)
+            assert 0.9 < info.duration < 1.15
 
 
 def test_mp3_sem_encoder_avisa_em_vez_de_mentir(monkeypatch):
