@@ -1306,6 +1306,12 @@ class Handler(BaseHTTPRequestHandler):
             ".aiff": "audio/aiff",
             ".aif": "audio/aiff",
             ".md": "text/markdown; charset=utf-8",
+            # a ficha e a cifra sao documentos para ler/imprimir, nao downloads:
+            # sem o tipo certo o `window.open` da tela baixa o arquivo em vez
+            # de abrir a aba onde o usuario faz Ctrl+P.
+            ".html": "text/html; charset=utf-8",
+            ".csv": "text/csv; charset=utf-8",
+            ".txt": "text/plain; charset=utf-8",
             ".json": "application/json",
             ".m3u": "audio/x-mpegurl",
             ".cue": "text/plain; charset=utf-8",
@@ -1343,7 +1349,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Range", f"bytes {inicio}-{fim}/{tamanho}")
         if inline and suffix in (".jpg", ".jpeg", ".png", ".webp"):
             self.send_header("Cache-Control", "max-age=3600")
-        if suffix in (".mp3", ".mp4", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".aiff", ".aif"):
+        if suffix in (
+            ".mp3", ".mp4", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus",
+            ".aiff", ".aif",
+            ".html", ".md", ".txt", ".csv",
+        ):
             self.send_header("Content-Disposition", f'inline; filename="{target.name}"')
         self.end_headers()
         with target.open("rb") as fh:

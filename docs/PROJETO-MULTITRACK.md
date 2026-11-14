@@ -5,7 +5,9 @@ no projeto existente, com as decisões técnicas, as licenças conferidas, o que
 foi testado e o que continua pendente. Tudo que aparece aqui existe no código
 e tem teste; o que não foi feito está na seção "Pendências" — sem promessa.
 
-Data desta versão: novembro de 2026 · base: `0.1.28` + projeto multitrack.
+Data desta versão: novembro de 2026 · versão **0.1.30** (o projeto multitrack
+entrou na 0.1.29; a 0.1.30 corrige a ficha que o navegador baixava em vez de
+abrir).
 
 ---
 
@@ -178,7 +180,7 @@ pip install vosk                # Apache-2.0 (precisa do modelo em português)
 ## 5. Testes
 
 ```
-302 passed, 1 skipped        (pytest, ~30 s)
+303 passed, 1 skipped        (pytest, ~30 s)
 ruff check src tests         All checks passed
 ```
 
@@ -213,7 +215,12 @@ ids criados por JS, e `textarea` no parser de `innerHTML`.
 6. parser de `.srt` ignorava as horas (10 s viravam 0,5 s);
 7. "Salvar projeto" gravava o estado do botão ⟳ no campo de loop;
 8. `edicoes.json` desfazia o mudo salvo no projeto ao reabrir;
-9. play reposicionava todas as faixas no tempo da régua (offset ignorado).
+9. play reposicionava todas as faixas no tempo da régua (offset ignorado);
+10. a ficha saía de `/api/file` como `application/octet-stream`, então o
+    `window.open` **baixava** o HTML em vez de abrir a aba para imprimir —
+    `.html`, `.txt`, `.csv` e `.md` passaram a ser servidos com o tipo certo e
+    `Content-Disposition: inline`. O `.mrqvs.json` continua sendo download de
+    propósito: HTML servido na mesma origem pode carregar script.
 
 ---
 
