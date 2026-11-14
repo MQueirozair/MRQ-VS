@@ -221,15 +221,41 @@ def test_estrutura_toda_secao_diz_por_que_recebeu_o_nome():
 def test_voz_do_pacote_carrega_e_tem_todas_as_palavras():
     """Trava o pacote: as 17 palavras têm de vir junto do programa.
 
-    Marca de `xfail` enquanto a geração está incompleta: o teste precisa
-    existir desde já para o buraco não passar batido, mas a ausência de um
-    arquivo não pode derrubar a suíte (a guia cai na melodia sem ele).
+    Deixou de ser `xfail`: o pacote está completo (1..8 + as 9 seções). Se
+    alguém apagar um WAV ou esquecer de incluí-lo no `package-data`, o teste
+    falha aqui em vez de a guia cair em silêncio na melodia.
     """
     from mrqvs import voz
 
-    faltando = voz.faltando()
-    if faltando:
-        pytest.xfail(f"faltam palavras de voz no pacote: {faltando}")
+    assert voz.faltando() == [], f"faltam palavras de voz no pacote: {voz.faltando()}"
+    esperados = voz.nomes_esperados()
+    assert len(esperados) == 17
+    for nome in esperados:
+        caminho = voz.arquivo(nome)
+        assert caminho.is_file(), f"{nome}.wav ausente"
+        assert caminho.stat().st_size > 8_000, f"{nome}.wav suspeito de estar vazio"
+
+
+def test_todo_wav_de_voz_tem_audio_de_verdade():
+    """Arquivo de 44 bytes (cabeçalho só) passaria no teste acima.
+
+    Pico normalizado em 0,8 e sinal não constante: confirma que a síntese
+    gerou fala, não silêncio.
+    """
+    import numpy as np
+    import soundfile as sf
+
+    from mrqvs import voz
+
+    for nome in voz.nomes_esperados():
+        dados, taxa = sf.read(str(voz.arquivo(nome)), always_2d=True, dtype="float32")
+        assert taxa == 44_100, f"{nome}.wav em {taxa} Hz"
+        mono = dados.mean(axis=1)
+        assert mono.size > 0, f"{nome}.wav sem amostras"
+        assert float(np.abs(mono).max()) > 0.5, f"{nome}.wav baixo demais"
+        assert float(mono.std()) > 0.01, f"{nome}.wav praticamente constante"
+        segundos = mono.size / float(taxa)
+        assert 0.15 < segundos < 2.5, f"{nome}.wav com {segundos:.2f}s fora do esperado"
 
 
 def test_guia_fala_a_secao_e_a_contagem(tmp_path):
