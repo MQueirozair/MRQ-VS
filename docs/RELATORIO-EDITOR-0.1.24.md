@@ -1,4 +1,4 @@
-# Relatório — correção do editor musical (0.1.24)
+# Relatório — correção do editor musical (0.1.24 → 0.1.26)
 
 Origem: pacote de transferência `transferencia-MRQ-VS-codigo-relatorio-testes.zip`
 (Drive), que trouxe a árvore da 0.1.23 no commit `d5b0b6a`, o histórico Git
@@ -176,3 +176,62 @@ do executável.
    decodificação falha, a trilha diz "forma de onda indisponível" em vez de
    desenhar rabisco — mas isso não foi exercitado com um arquivo corrompido
    real.
+
+---
+
+## 7. Rodada 0.1.26 — o que o usuário apontou nas capturas
+
+Depois da 0.1.25 ele mandou três recortes de tela. Cada um virou causa
+identificada e teste.
+
+### 7.1 Botão de esconder o menu lateral só existia dentro do Studio
+**Sintoma (fotos 1 e 2):** ele mostrou o botão verde `▤` no canto da barra de
+ferramentas do editor e pediu que ele aparecesse no cabeçalho, ao lado de
+"MRQ VS 0.1.24".
+
+**Causa:** o botão nasce dentro de `.studio-ferramentas`, então só existe
+**depois de abrir uma música**; e o estado "ligado" estava preso à classe da
+barra (`.ferr.on`), então um botão em outro lugar não acenderia.
+
+**Correção:** o estado saiu de `.ferr` para `.ferr.on,.botao-icone.on`; botão
+novo `#fMenuTopo` no cabeçalho, depois da versão; e os dois passaram a chamar
+**uma** função (`alternarMenuLateral()`), que lê o `body` como fonte única da
+verdade. A restauração do `localStorage` no boot também passa por ela — antes
+acendia só o botão do Studio.
+
+### 7.2 Faixas abaixo da dobra sem nenhuma pista
+**Sintoma (foto 3):** com 8 faixas, a lista "acabava" na Guitarra e parecia que
+Contrabaixo/Piano/violão extra tinham desaparecido.
+
+**Causa:** `.painel-faixas` usava `scrollbar-width:none` **e**
+`::-webkit-scrollbar{display:none}` — a rolagem existia, mas era invisível. E o
+transporte era `position:sticky` dentro do `.studio` (que tem `overflow:hidden`),
+então em janela baixa ele flutuava **por cima** das últimas linhas.
+
+**Correção:** barra de rolagem de 11 px no mesmo estilo da timeline; classe
+`tem-mais` no painel (degradê no rodapé enquanto há conteúdo oculto, que some ao
+chegar no fim); contador `N faixas · K à vista` num `#painelContagem` próprio
+(o `#painelInfo` continua sendo o nome da seção); e o transporte virou
+`position:relative` (ele já era `flex:none`, logo continua sempre visível).
+
+**Ganho medido** (altura de linha 76 px, transporte de uma linha):
+
+| Janela | faixas à vista antes | agora |
+|---|---|---|
+| 768 px | 2 | **3** |
+| 900 px | 4 | **5** |
+| 1080 px | 6 | **7** |
+| 1440 px | 8 | **9** |
+
+### 7.3 Testes desta rodada
+`tests/test_studio_musical_editor.py` passou de 34 para **37**:
+
+- os dois botões (cabeçalho e barra) alternam o mesmo estado, com
+  `aria-pressed` correto — clicar num não deixa o outro aceso;
+- com `mrqvs.semLateral=1` salvo, o botão **do cabeçalho** já nasce aceso
+  antes de qualquer música ser aberta;
+- o painel mostra "7 faixas · 3 à vista", ganha `tem-mais` com conteúdo oculto
+  e perde ao rolar até o fim; a barra de rolagem antiga (`display:none`) não
+  existe mais no CSS.
+
+Suíte: **170 passed** (3 execuções), ruff limpo.
