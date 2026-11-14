@@ -178,6 +178,9 @@ def smoke_test(pyz: Path) -> list[str]:
         "mrqvs/web/favicon.ico",
         "mrqvs/web/icone-192.png",
         "mrqvs/web/icone-512.png",
+        # a guia falada depende destes: sem eles a guia cai na melodia
+        "mrqvs/web/voz/palavras/1.wav",
+        "mrqvs/web/voz/palavras/intro.wav",
         "mrqvs/biblioteca.py",
         "mrqvs/mixdown.py",
     ):

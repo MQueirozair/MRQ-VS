@@ -555,10 +555,16 @@ def test_clique_usa_lookahead_do_audiocontext_e_nao_setinterval_como_relogio():
     sem_comentarios = re.sub(r"(?m)^\s*//.*$", "", sem_comentarios)
     assert "setInterval(" not in sem_comentarios, "o relógio do Studio não pode ser setInterval"
     assert "requestAnimationFrame" in js
-    # o agendador tem de disparar osciladores no relógio do contexto
-    trecho = js[js.index("function tocarPulsoClique"): js.index("function agendarCliquesLookahead")]
+    # o agendador tem de disparar osciladores no relógio do contexto — o som
+    # sai de `tocarBip` (90 ms, com corpo), e `tocarPulsoClique` escolhe a
+    # altura do número contado antes de chamá-lo
+    trecho = js[js.index("function tocarBip"): js.index("function agendarCliquesLookahead")]
     assert "createOscillator" in trecho
     assert "osc.start(quando)" in trecho
+    # o pulso é que decide a altura: o bip sozinho não sabe qual número é
+    pulso = js[js.index("function tocarPulsoClique"): js.index("function modoDaContagem")]
+    assert "tocarBip" in pulso
+    assert "TOM_DO_NUMERO" in pulso
 
 
 def test_clique_agenda_pulsos_e_respeita_acentos_compostos():
@@ -607,7 +613,13 @@ def test_clique_agenda_pulsos_e_respeita_acentos_compostos():
     assert r["ordem"][3] == 1320
 
 
-def test_pre_contagem_e_contagem_de_compassos():
+def test_pre_contagem_conta_tempos_e_nao_compassos():
+    """A pré-contagem conta 1-2-3-4, e não "N compassos inteiros".
+
+    Antes, pedir 2 contava 8 pulsos a partir do compasso atual e o play
+    entrava um pedaço à frente do que o usuário estava vendo — a contagem
+    "não batia" com o compasso da tela. Pedir 4 tempos = 4 pulsos, sempre.
+    """
     fonte = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
     js = fonte.split("<script>")[1].split("</script>")[0]
     assert "function agendarContagem" in js
@@ -629,14 +641,25 @@ def test_pre_contagem_e_contagem_de_compassos():
           o.start = function (t) {{ cliques.push(t); s.call(o, t); return; }};
           return o;
         }};
-        S.contagem = 2;
-        const usados = sb.agendarContagem(ctx.currentTime, 2, 0);
-        console.log(JSON.stringify({{cliques: cliques.length, usados, barra: sb.duracaoDoCompasso(0)}}));
+        S.contagem = 4;
+        const usados = sb.agendarContagem(ctx.currentTime, 4, 0);
+        // meio compasso também: 2 tempos de 4/4 = 2 pulsos
+        const cliquesMeio = cliques.length;
+        const usados2 = sb.agendarContagem(ctx.currentTime, 2, 0);
+        console.log(JSON.stringify({{
+          cliques: cliquesMeio,
+          usados,
+          barra: sb.duracaoDoCompasso(0),
+          pulsos2: cliques.length - cliquesMeio,
+          usados2,
+        }}));
         """
     )
     r = json.loads(saida.strip().splitlines()[-1])
-    assert r["cliques"] == 8, "2 compassos de 4/4 = 8 pulsos"
-    assert r["usados"] == pytest.approx(2 * r["barra"])
+    assert r["cliques"] == 4, "4 tempos de 4/4 = 4 pulsos"
+    assert r["usados"] == pytest.approx(r["barra"]), "4 tempos = 1 compasso de duração"
+    assert r["pulsos2"] == 2, "2 tempos = 2 pulsos"
+    assert r["usados2"] == pytest.approx(r["barra"] / 2)
 
 
 def test_guia_e_clique_sao_independentes_e_solo_do_clique_funciona():
@@ -1092,7 +1115,7 @@ def test_pre_contagem_atrasa_a_entrada_da_banda():
         const S = h.Studio, sb = h.sandbox, ctx = h.ctx;
         sb.studioMontar({json.dumps(dados)});
         (async () => {{
-          S.contagem = 2;
+          S.contagem = 4;
           await sb.studioTocar();
           const atraso = S.clockInicio - ctx.currentTime;
           console.log(JSON.stringify({{atraso, barra: sb.duracaoDoCompasso(0),
@@ -1101,9 +1124,9 @@ def test_pre_contagem_atrasa_a_entrada_da_banda():
         """
     )
     r = json.loads(saida.strip().splitlines()[-1])
-    # 2 compassos de 100 BPM 4/4 = 4.8 s de contagem (+ 60 ms de folga)
+    # 4 tempos de 100 BPM 4/4 = 2.4 s de contagem (+ 60 ms de folga)
     assert r["barra"] == pytest.approx(2.4)
-    assert r["atraso"] == pytest.approx(4.8 + 0.06, abs=0.02)
+    assert r["atraso"] == pytest.approx(2.4 + 0.06, abs=0.02)
     assert r["tocando"] is True
 
 
@@ -1307,6 +1330,10 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
     como texto, então a leitura saía como um número colado na frase. O botão
     passou a ter ícone próprio e um `<span>` com o estado; este teste percorre
     o ciclo 0 → 1 → 2 → 0 e confere texto, classe e dica a cada passo.
+
+    O texto agora fala em TEMPOS e diz qual som está escolhido ("1 tempo ·
+    bip"), porque é isso que o músico ouve: a contagem é 1-2-3-4, não dois
+    compassos inteiros.
     """
     dados = {
         "titulo": "Contagem", "nome_pasta": "C", "pasta": "/tmp/c", "apoio": "",
@@ -1330,7 +1357,8 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
         const passos = [];
         S.contagem = 0; sb.studioAtualizarTransporte();
         passos.push(lido());
-        for (let i = 0; i < 3; i++){
+        // o ciclo é 0 → 1 → … → 8 → 0: são 9 cliques para voltar ao começo
+        for (let i = 0; i < 9; i++){
           doc.getElementById("trContagem").onclick();
           passos.push(lido());
         }
@@ -1347,11 +1375,14 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
     r = json.loads(saida.strip().splitlines()[-1])
     p = r["passos"]
     assert p[0]["texto"] == "sem contagem" and p[0]["ligado"] is False
-    assert p[1]["contagem"] == 1 and p[1]["texto"] == "1 compasso de contagem"
-    assert p[1]["ligado"] is True and "1 compasso" in p[1]["dica"]
-    assert p[2]["contagem"] == 2 and p[2]["texto"] == "2 compassos de contagem"
-    assert p[3]["contagem"] == 0 and p[3]["texto"] == "sem contagem"
-    assert p[3]["ligado"] is False
+    assert p[1]["contagem"] == 1 and p[1]["texto"] == "1 tempo · bip"
+    assert p[1]["ligado"] is True and "1 tempo" in p[1]["dica"]
+    assert p[2]["contagem"] == 2 and p[2]["texto"] == "2 tempos · bip"
+    # vai até 8 tempos e volta a desligar
+    assert p[7]["contagem"] == 7 and p[7]["texto"] == "7 tempos · bip"
+    assert p[8]["contagem"] == 8
+    assert p[9]["contagem"] == 0 and p[9]["texto"] == "sem contagem"
+    assert p[9]["ligado"] is False
     # no markup sobra só o span do estado: nada de pulsos como texto
     assert r["markup"] == "sem contagem"
     assert r["tem123"] is False

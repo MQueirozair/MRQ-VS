@@ -39,3 +39,7 @@ mrq-vs.spec
 download/*.zip
 download/*.pyz
 download/*.bundle
+
+# A voz da guia é conteúdo do programa, não saída do usuário: estes WAV
+# precisam viajar junto (senão a guia cai na melodia em toda instalação).
+!src/mrqvs/web/voz/palavras/*.wav

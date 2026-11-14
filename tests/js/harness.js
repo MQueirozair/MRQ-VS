@@ -45,6 +45,13 @@ function criarCtx() {
       };
     },
     createMediaElementSource() { return {connect() {}, disconnect() {}}; },
+    createDelay(maxo) {
+      return {
+        maxDelay: maxo,
+        delayTime: {value: 0, setTargetAtTime(v) { this.value = v; }},
+        connect() {}, disconnect() {},
+      };
+    },
     createBufferSource() {
       return {connect() {}, start() {}, stop() {}, buffer: null,
               playbackRate: {value: 1, setValueAtTime() {}}};

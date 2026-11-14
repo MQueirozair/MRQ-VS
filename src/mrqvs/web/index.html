@@ -1233,10 +1233,18 @@ python -m pip install demucs</pre>
                saía como um número colado na frase; aqui são desenho (svg) e
                um span só com o estado, que é o que o leitor de tela lê -->
           <button class="tr-info tr-contagem" id="trContagem" type="button"
-                  title="Pré-contagem antes de começar (0 a 4 compassos)"
+                  title="Pré-contagem antes de começar (1 a 8 tempos)"
                   aria-label="Pré-contagem">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="ic-contagem"><path d="M6 9v6M12 7v10M18 9v6"/></svg><span id="trContagemTexto">sem contagem</span>
           </button>
+          <!-- som da contagem: bip ou voz. O usuário escolhe qual ouve antes
+               de a música entrar, e quantos tempos. -->
+          <label class="tr-info tr-som-contagem" title="Som da pré-contagem: bip ou voz contando">
+            <select id="trSomContagem" aria-label="Som da pré-contagem">
+              <option value="bip">bip</option>
+              <option value="voz">voz</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="studio-salvo" id="studioSalvo" hidden></div>
@@ -2116,6 +2124,13 @@ const Studio = window.Studio = {
   alturaLinha: 0,
   selecao: null,
   transposicao: 0,
+  //: semitons aplicados ao SOM (tom ao vivo). Separado de `transposicao`,
+  //: que é só a cifra: o usuário pode querer ler em outro tom sem tocar o áudio.
+  tomAoVivo: 0,
+  tomNo: null,
+  tomLfo: null,
+  tomProf: null,
+  tomLigado: false,
   // --- reprodução ---------------------------------------------------------
   tocando: false,
   tempo: 0,
@@ -2135,6 +2150,10 @@ const Studio = window.Studio = {
   metronomo: true,
   guiaAtiva: true,
   contagem: 0,
+  //: "bip" | "voz" — como a pré-contagem conta (escolha do usuário)
+  contagemVoz: "bip",
+  //: "sistema" | "gravada" — de onde vem a voz (quando `contagemVoz` = voz)
+  vozFonte: "sistema",
   faixas: [],
   ensaio: [],
   zoom: 1,
@@ -2686,6 +2705,98 @@ function ligarContextoAudio(){
 }
 
 function painelFaixas(){ return $("painelFaixas"); }
+
+// ------------------------------------------------------- tom ao vivo --------
+// O tom da cifra tem de ser o tom que se OUVE. Até aqui só os acordes na tela
+// mudavam, e ensaiar no tom da cifra era impossível.
+//
+// Como funciona sem esticar a música: cada faixa passa por
+//   elemento -> ganho -> pan -> analyser -> TOM -> master
+// e o nó de tom é um `DelayNode` com o atraso modulado em triângulo. Atrasar/
+// adiantar a leitura é exatamente o que faz a altura mudar mantendo a
+// velocidade — a mesma ideia do "doppler" de pedal de chorus, aqui com a
+// profundidade calculada para o semitom pedido. O atraso fica abaixo de ~10 ms,
+// então não vira eco: vira altura.
+//
+// Efeito colateral honesto: como a mudança de atraso é cíclica, aparece um
+// vibrato de ~1 Hz na nota. Por isso a interface chama isto de "tom ao vivo
+// (ensaio)" e oferece também gerar o arquivo definitivo, que não tem vibrato.
+const TOM_AO_VIVO_MAX = 6;      // semitons que o ouvido tolera sem virar "coro"
+const TOM_AO_VIVO_HZ = 1.1;     // frequência do ciclo de atraso
+
+/** Profundidade (s) de modulação para `semitons`. Meia-onda = 1 tom. */
+function profundidadeDoTom(semitons){
+  const semis = Math.max(-TOM_AO_VIVO_MAX, Math.min(TOM_AO_VIVO_MAX, Number(semitons) || 0));
+  if (!semis) return 0;
+  // subir a altura = encurtar o atraso, portanto a excursão é negativa
+  return -(Math.pow(2, semis / 12) - 1) / (2 * TOM_AO_VIVO_HZ);
+}
+
+/** Cria (uma vez) o nó de tom e liga a cadeia que passa por ele. */
+function garantirNoDeTom(){
+  const ctx = Studio.ctx;
+  if (!ctx) return null;
+  if (Studio.tomNo) return Studio.tomNo;
+  if (!ctx.createDelay || !ctx.createOscillator){ return null; }
+  try{
+    const atraso = ctx.createDelay(0.25);
+    atraso.delayTime.value = 0.012;
+    const lfo = ctx.createOscillator();
+    lfo.type = "triangle";
+    lfo.frequency.value = TOM_AO_VIVO_HZ;
+    const prof = ctx.createGain();
+    prof.gain.value = 0;              // zero = sem transposição
+    lfo.connect(prof);
+    prof.connect(atraso.delayTime);
+    try{ lfo.start(0); }catch(_){}
+    Studio.tomNo = atraso;
+    Studio.tomLfo = lfo;
+    Studio.tomProf = prof;
+  }catch(_){ Studio.tomNo = null; }
+  return Studio.tomNo;
+}
+
+/** Aplica o semitom pedido. 0 desliga a transposição (sem artefato nenhum). */
+function aplicarTomAoVivo(){
+  const ctx = Studio.ctx;
+  if (!ctx){ return; }
+  const no = garantirNoDeTom();
+  if (!no){ return; }
+  const semis = Number(Studio.tomAoVivo) || 0;
+  try{
+    const prof = profundidadeDoTom(semis);
+    if (Studio.tomProf && Studio.tomProf.gain){
+      const g = Studio.tomProf.gain;
+      if (g.setTargetAtTime) g.setTargetAtTime(prof, ctx.currentTime, 0.02);
+      else g.value = prof;
+    }
+    // o resultado precisa continuar passando pelo master
+    try{ no.disconnect(); }catch(_){}
+    no.connect(Studio.master || ctx.destination);
+  }catch(_){}
+}
+
+/**
+ * Reconecta as faixas existentes na cadeia com tom.
+ *
+ * Roda quando o nó de tom nasce (o AudioContext só existe depois do primeiro
+ * play) e quando o usuário troca de tom. `Studio.tomLigado` evita re-fazer o
+ * grafo a cada clique no ♯/♭.
+ */
+function religarTomNasFaixas(){
+  if (!Studio.ctx) return;
+  const no = garantirNoDeTom();
+  if (!no) return;
+  for (const f of todasAsFaixas()){
+    if (!f.analyser) continue;
+    try{
+      f.analyser.disconnect();
+      f.analyser.connect(no);
+    }catch(_){}
+  }
+  aplicarTomAoVivo();
+  Studio.tomLigado = true;
+}
 
 /** Cria a linha do painel + a trilha na timeline + o nó de áudio da faixa. */
 function studioCriarFaixa(cfg){
@@ -4011,35 +4122,224 @@ function atualizarPulsoAtual(){
   Studio.pulsoAtual = {compasso: p.compasso, pulso: p.pulso, acento: acentos[p.pulso] || "fraco"};
 }
 
-/** Som do clique: três alturas, para o ouvido separar sem pensar.
+//: Altura de cada acento, em Hz. O 1º tempo é o mais agudo e o mais forte:
+//: é assim que o músico acha o "um" sem contar.
+const TOM_DO_PULSO = {forte: [1760, 0.85], medio: [1320, 0.60], fraco: [990, 0.38]};
+
+//: Altura de cada NÚMERO da contagem falada (o "um, dois, três, quatro").
+const TOM_DO_NUMERO = [523.25, 587.33, 659.25, 783.99, 880.0, 987.77, 1046.5, 1174.66];
+
+//: Escala da voz cantada de 1 a 8, em Hz (dó maior ascendente).
+const ESCALA_DA_VOZ = [261.63, 293.66, 329.63, 349.23, 392.0, 440.0, 493.88, 523.25];
+
+/**
+ * Um bip de metrônomo de verdade — 90 ms, com corpo e cauda.
  *
- *  1º tempo do compasso: 1760 Hz, forte · tempos médios: 1320 Hz · fracos:
- *  990 Hz e bem mais baixos. Em compasso composto o acento vem da fórmula
- *  (3+3 em 6/8, 3+2+2 em 7/8), não de um "a cada 4" fixo.
+ * O tick antigo era uma senoide de 45 ms: em fone de palco passa, mas em
+ * caixa de som pequena quase não se ouve, e foi assim que o usuário relatou
+ * "o bip não funciona". Aqui entra um ataque curto + queda mais longa e um
+ * harmônico, que dá presença sem virar estalo.
  */
-function tocarPulsoClique(tempoMusical, quando, acento, destino){
+function tocarBip(quando, freq, ganho, destino, duracao){
   const ctx = Studio.ctx;
   if (!ctx) return;
   const bus = destino || (faixaClique() && faixaClique().ganho) || Studio.master;
   if (!bus) return;
-  const tabela = {forte: [1760, 0.85], medio: [1320, 0.60], fraco: [990, 0.38]};
-  const [freq, ganho] = tabela[acento] || tabela.fraco;
+  const dur = duracao || 0.09;
+  try{
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = "triangle";           // mais corpo que a senoide pura
+    osc.frequency.setValueAtTime(freq, quando);
+    env.gain.setValueAtTime(0.0001, quando);
+    env.gain.exponentialRampToValueAtTime(ganho, quando + 0.004);
+    env.gain.exponentialRampToValueAtTime(ganho * 0.35, quando + dur * 0.45);
+    env.gain.exponentialRampToValueAtTime(0.0001, quando + dur);
+    osc.connect(env);
+    env.connect(bus);
+    osc.start(quando);
+    osc.stop(quando + dur + 0.01);
+    Studio.agendados.push({inicio: quando, fim: quando + dur, tempo: -1});
+    if (Studio.agendados.length > 512) Studio.agendados.splice(0, 256);
+  }catch(_){ /* sem áudio: a grade visual continua */ }
+}
+
+/** Nota da voz cantada: duas senoides + queda suave (som de "voz", não "beep"). */
+function tocarNotaVoz(quando, freq, ganho, destino){
+  const ctx = Studio.ctx;
+  if (!ctx) return;
+  const bus = destino || (faixaClique() && faixaClique().ganho) || Studio.master;
+  if (!bus) return;
   try{
     const osc = ctx.createOscillator();
     const env = ctx.createGain();
     osc.type = "sine";
     osc.frequency.setValueAtTime(freq, quando);
-    // envelope curto: 30 ms com queda exponencial (o "tick" do metrônomo)
+    // "a" cantado: ataque de 20 ms, platô curto, queda de 120 ms
     env.gain.setValueAtTime(0.0001, quando);
-    env.gain.exponentialRampToValueAtTime(ganho, quando + 0.002);
-    env.gain.exponentialRampToValueAtTime(0.0001, quando + 0.045);
+    env.gain.exponentialRampToValueAtTime(ganho, quando + 0.02);
+    env.gain.setValueAtTime(ganho, quando + 0.12);
+    env.gain.exponentialRampToValueAtTime(0.0001, quando + 0.26);
     osc.connect(env);
     env.connect(bus);
     osc.start(quando);
-    osc.stop(quando + 0.06);
-    Studio.agendados.push({inicio: quando, fim: quando + 0.06, tempo: tempoMusical});
+    osc.stop(quando + 0.28);
+    Studio.agendados.push({inicio: quando, fim: quando + 0.28, tempo: -1});
     if (Studio.agendados.length > 512) Studio.agendados.splice(0, 256);
-  }catch(_){ /* sem áudio: a grade visual continua */ }
+  }catch(_){}
+}
+
+/**
+ * Som do clique: três alturas, para o ouvido separar sem pensar.
+ *
+ *  1º tempo do compasso: 1760 Hz, forte · tempos médios: 1320 Hz · fracos:
+ *  990 Hz e bem mais baixos. Em compasso composto o acento vem da fórmula
+ *  (3+3 em 6/8, 3+2+2 em 7/8), não de um "a cada 4" fixo.
+ *
+ * `numero` (1..8) faz o bip soar na altura do número contado, para a contagem
+ * subir como uma escala em vez de repetir o mesmo tom (o ouvido localiza o
+ * "um" pela direção, sem precisar contar).
+ */
+function tocarPulsoClique(tempoMusical, quando, acento, destino, numero){
+  const ctx = Studio.ctx;
+  if (!ctx) return;
+  const tabela = TOM_DO_PULSO;
+  const base = tabela[acento] || tabela.fraco;
+  let freq = base[0];
+  let ganho = base[1];
+  if (Number.isFinite(numero) && numero >= 1){
+    const n = Math.min(TOM_DO_NUMERO.length, Math.max(1, Math.round(numero)));
+    freq = TOM_DO_NUMERO[n - 1];
+    // o 1 continua sendo o mais forte: é ele que marca o compasso
+    ganho = base[1] * (n === 1 ? 1.0 : 0.82);
+  }
+  const alvo = destino || (faixaClique() && faixaClique().ganho) || Studio.master;
+  if (!alvo) return;
+  tocarBip(quando, freq, ganho, alvo, 0.09);
+  Studio.agendados.push({inicio: quando, fim: quando + 0.09, tempo: tempoMusical});
+  if (Studio.agendados.length > 512) Studio.agendados.splice(0, 256);
+}
+
+/** Qual "voz" o usuário escolheu para a contagem. */
+function modoDaContagem(){
+  return Studio.contagemVoz === "voz" ? "voz" : "bip";
+}
+
+// ------------------------------------------------------- voz da contagem ----
+// Duas fontes, escolhidas pelo usuário:
+//   "sistema"  — a voz pt-BR do próprio computador (Web Speech). Custo zero,
+//                não precisa baixar nada, mas atrasa alguns milissegundos
+//                porque é o motor do sistema falando;
+//   "gravada"  — números 1..8 falados em pt-BR, gravados com voz de IA e
+//                embutidos no programa (assets/voz). É o que entra no arquivo
+//                exportado e o que soa sempre igual em qualquer máquina.
+// A escolha não muda a grade: o clique.wav exportado continua sendo o bip.
+const VOZ_NUMEROS = ["um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito"];
+
+/** Fala um número agora (voz do sistema). Silenciosa se o navegador não tem. */
+function falarNumero(numero, quando){
+  const fala = window.speechSynthesis;
+  if (!fala || typeof window.SpeechSynthesisUtterance !== "function") return false;
+  try{
+    const n = Math.min(VOZ_NUMEROS.length, Math.max(1, Math.round(numero) || 1));
+    const u = new window.SpeechSynthesisUtterance(VOZ_NUMEROS[n - 1]);
+    u.lang = "pt-BR";
+    u.rate = 1.05;
+    u.pitch = n === 1 ? 1.15 : 1.0;   // o "um" um pouco acima: acento de ouvido
+    u.volume = 0.9;
+    const voz = vozPtBr(fala);
+    if (voz) u.voice = voz;
+    // o Web Speech não aceita agendamento: fala agora, e o `quando` serve só
+    // de referência para o chamador decidir se ainda vale a pena
+    fala.speak(u);
+    return true;
+  }catch(_){ return false; }
+}
+
+/** Escolhe uma voz pt-BR instalada (guardando a lista, que carrega assíncrona). */
+function vozPtBr(fala){
+  if (Studio._vozPtBr !== undefined) return Studio._vozPtBr;
+  const lista = (fala && fala.getVoices ? fala.getVoices() : []) || [];
+  if (!lista.length) return undefined;      // ainda carregando
+  const pt = lista.filter(v => /pt/i.test(v.lang || ""));
+  Studio._vozPtBr = pt.find(v => /BR/i.test(v.lang || "")) || pt[0] || null;
+  return Studio._vozPtBr;
+}
+
+/** Buffer dos números gravados (carregados uma vez). */
+function buffersDaVoz(){
+  if (!Studio._vozBuf) Studio._vozBuf = {};
+  return Studio._vozBuf;
+}
+
+/** Toca o número gravado; devolve false se ainda não está no buffer. */
+function tocarVozGravada(quando, numero, ganho, destino){
+  const ctx = Studio.ctx;
+  if (!ctx) return false;
+  const n = Math.min(8, Math.max(1, Math.round(numero) || 1));
+  const buf = buffersDaVoz()[n];
+  if (!buf) return false;
+  const bus = destino || (faixaClique() && faixaClique().ganho) || Studio.master;
+  if (!bus) return false;
+  try{
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = ganho == null ? 0.9 : ganho;
+    src.connect(g);
+    g.connect(bus);
+    src.start(quando);
+    return true;
+  }catch(_){ return false; }
+}
+
+/** Baixa os 8 números falados, uma vez por sessão. Falha em silêncio. */
+async function carregarVozGravada(){
+  if (Studio._vozCarregando || Studio._vozPronta) return;
+  Studio._vozCarregando = true;
+  const ctx = Studio.ctx || ligarContextoAudio();
+  if (!ctx || !ctx.decodeAudioData){ Studio._vozCarregando = false; return; }
+  const buf = buffersDaVoz();
+  let algum = false;
+  for (let n = 1; n <= 8; n++){
+    if (buf[n]) { algum = true; continue; }
+    try{
+      const r = await fetch(`/api/voz/${n}`);
+      if (!r.ok) continue;
+      const dados = await r.arrayBuffer();
+      buf[n] = await new Promise((ok, erro) => {
+        const p = ctx.decodeAudioData(dados, ok, erro);
+        if (p && p.then) p.then(ok).catch(erro);
+      });
+      algum = true;
+    }catch(_){ /* número que falta cai na voz do sistema */ }
+  }
+  Studio._vozPronta = algum;
+  Studio._vozCarregando = false;
+}
+
+/**
+ * Conta um número antes do tempo `quando`.
+ *
+ * Ordem: voz gravada (se escolhida e já carregada) → voz do sistema → nota
+ * cantada. A nota cantada é a última reserva porque é a única que soa em
+ * qualquer máquina; o usuário nunca fica sem contagem.
+ */
+function tocarNumero(quando, numero, acento, destino){
+  if (modoDaContagem() === "voz"){
+    const fonte = Studio.vozFonte === "gravada" ? "gravada" : "sistema";
+    if (fonte === "gravada" && tocarVozGravada(quando, numero, acento === "forte" ? 1.0 : 0.82, destino)){
+      return;
+    }
+    // a voz do sistema fala na hora (não agenda): só vale quando o tempo já é
+    // o agora, senão falaria antes da hora e a contagem sairia fora do pulso
+    const atraso = quando - (Studio.ctx ? Studio.ctx.currentTime : 0);
+    if (atraso < 0.06 && falarNumero(numero, quando)) return;
+    const n = Math.min(ESCALA_DA_VOZ.length, Math.max(1, Math.round(numero) || 1));
+    tocarNotaVoz(quando, ESCALA_DA_VOZ[n - 1], acento === "forte" ? 0.38 : 0.3, destino);
+  } else {
+    tocarPulsoClique(-1, quando, acento, destino, numero);
+  }
 }
 
 /** Agenda os cliques dos próximos 120 ms (lookahead do Web Audio).
@@ -4072,20 +4372,36 @@ function agendarCliquesLookahead(){
   }
 }
 
-/** Pré-contagem: N compassos de clique antes de a música começar. */
-function agendarContagem(quandoInicio, compassos, referenciaTempo){
+/**
+ * Pré-contagem: conta os tempos ANTES de a música começar.
+ *
+ * A conta é em TEMPOS (1, 2, 3, 4), não em compassos inteiros, e começa do
+ * compasso em que o usuário está — é assim que o "um" cai exatamente na
+ * entrada que ele está vendo na tela. Antes, pedir 2 compassos contava sempre
+ * 8 pulsos a partir do compasso atual e o play entrava um pedaço à frente, o
+ * que fazia a contagem "não bater" com o compasso mostrado.
+ *
+ * Devolve quantos segundos a contagem ocupou.
+ */
+function agendarContagem(quandoInicio, tempos, referenciaTempo){
   const ctx = Studio.ctx;
   if (!ctx) return 0;
+  const pedidos = Math.max(0, Math.min(32, Math.round(Number(tempos) || 0)));
+  if (!pedidos) return 0;
   const n0 = compassoDe(referenciaTempo || 0);
+  const porCompasso = Math.max(1, subdivisoesDoCompasso(n0));
+  const acentos0 = acentosDoCompasso(n0);
+  const duracao = Math.max(1e-3, inicioDoCompasso(n0 + 1) - inicioDoCompasso(n0));
+  const passo = duracao / porCompasso;
   let quando = quandoInicio;
-  for (let b = 0; b < compassos; b++){
-    const n = n0 + b;
-    const total = subdivisoesDoCompasso(n);
-    const acentos = acentosDoCompasso(n);
-    for (let k = 0; k < total; k++){
-      tocarPulsoClique(-1, quando, acentos[k] || "fraco");
-      quando += (inicioDoCompasso(n + 1) - inicioDoCompasso(n)) / total;
-    }
+  for (let i = 0; i < pedidos; i++){
+    const k = i % porCompasso;           // 0..n-1 dentro do compasso
+    const numero = k + 1;                // 1..n
+    const acento = acentos0[k] || "fraco";
+    // no compasso da contagem o "1" é sempre forte: é a referência que o
+    // músico escuta para entrar junto
+    tocarNumero(quando, numero, k === 0 ? "forte" : acento);
+    quando += passo;
   }
   return quando - quandoInicio;
 }
@@ -4118,6 +4434,9 @@ function atualizarMedidores(){
 async function studioTocar(){
   const ctx = ligarContextoAudio();
   aplicarMix();
+  // o AudioContext pode ter nascido agora (primeiro play): é aqui que o nó de
+  // tom passa a existir e as faixas precisam ser religadas por ele
+  if (ctx && (!Studio.tomLigado || !Studio.tomNo)) religarTomNasFaixas();
   const dur = Studio.duracao || 0;
   if (Studio.finalizado || (dur && Studio.tempo >= dur - 0.05)){
     Studio.tempo = 0;
@@ -4125,17 +4444,20 @@ async function studioTocar(){
   }
   if (ctx && ctx.state === "suspended"){ try{ await ctx.resume(); }catch(_){} }
   const base = Math.max(0, Studio.tempo || 0);
-  const barras = Math.max(0, Math.min(4, Number(Studio.contagem) || 0));
+  // `Studio.contagem` é em TEMPOS (0 = desligada, 4 = "1 2 3 4")
+  const temposDeContagem = Math.max(0, Math.min(32, Number(Studio.contagem) || 0));
   const agora = ctx ? ctx.currentTime : 0;
   const espera = 0.06;
-  const duracaoContagem = barras ? duracaoDoCompasso(compassoDe(base)) * barras : 0;
+  const duracaoContagem = temposDeContagem
+    ? (duracaoDoCompasso(compassoDe(base)) / Math.max(1, subdivisoesDoCompasso(compassoDe(base)))) * temposDeContagem
+    : 0;
   Studio.clockInicio = agora + espera + duracaoContagem;
   Studio.clockOffset = base;
   Studio.proximoPulso = pulsoEm(base);
   Studio.agendados = [];
   Studio.tocando = true;
   Studio.finalizado = false;
-  if (duracaoContagem) agendarContagem(agora + espera, barras, base);
+  if (duracaoContagem) agendarContagem(agora + espera, temposDeContagem, base);
 
   const iniciar = () => {
     if (!Studio.tocando) return;
@@ -4377,15 +4699,16 @@ function studioAtualizarTransporte(){
   if ($("studioTom")) $("studioTom").textContent = "♫ " + (Studio.tomExibido || Studio.tom || "—");
   if ($("trContagemTexto")){
     $("trContagemTexto").textContent = Studio.contagem
-      ? `${Studio.contagem} ${Studio.contagem > 1 ? "compassos" : "compasso"} de contagem`
+      ? `${Studio.contagem} ${Studio.contagem > 1 ? "tempos" : "tempo"} · ${modoDaContagem()}`
       : "sem contagem";
   }
   if ($("trContagem")){
     $("trContagem").classList.toggle("on", !!Studio.contagem);
     $("trContagem").title = Studio.contagem
-      ? `Pré-contagem de ${Studio.contagem} ${Studio.contagem > 1 ? "compassos" : "compasso"} (clique para mudar)`
+      ? `Pré-contagem de ${Studio.contagem} tempos em ${modoDaContagem()} (clique para mudar)`
       : "Pré-contagem desligada — clique para ligar";
   }
+  if ($("trSomContagem")) $("trSomContagem").value = modoDaContagem();
   if ($("painelFormula")) $("painelFormula").textContent = `${Studio.compasso}/${denominadorCompasso()}`;
 }
 
@@ -4419,9 +4742,21 @@ function studioSincronizarControles(){
 }
 
 // ------------------------------------------------------- tom / transposição --
+function caminhoCurtoDoTom(transposicao){
+  const t = ((Number(transposicao) || 0) % 12 + 12) % 12;
+  const curto = t > 6 ? t - 12 : t;      // 7..11 sobem demais: desce
+  return Math.max(-TOM_AO_VIVO_MAX, Math.min(TOM_AO_VIVO_MAX, curto));
+}
+
 function studioTranspor(semitons){
   if (!semitons) return;
   Studio.transposicao = ((Studio.transposicao + semitons) % 12 + 12) % 12;
+  // O SOM acompanha (era o defeito: só a cifra mudava). O valor vem SEMPRE da
+  // transposição da cifra, pelo caminho mais curto: somando à parte, um limite
+  // aqui e outro acolá deixariam áudio e cifra discordando depois de alguns
+  // cliques. Transpor +7 é o mesmo que -5, e é -5 que se ouve.
+  Studio.tomAoVivo = caminhoCurtoDoTom(Studio.transposicao);
+  if (Studio.ctx) { religarTomNasFaixas(); }
   // o tom EXIBIDO acompanha; o tom GRAVADO (tomProjeto) e o áudio não mudam
   const base = indiceNota(Studio.tomProjeto || Studio.tom);
   if (base >= 0){
@@ -4557,6 +4892,8 @@ function studioSalvarEdicoes(){
       metronomo: !!Studio.metronomo,
       guiaAtiva: !!Studio.guiaAtiva,
       contagem: Number(Studio.contagem) || 0,
+      contagemVoz: modoDaContagem(),
+      vozFonte: Studio.vozFonte === "gravada" ? "gravada" : "sistema",
       zoomOnda: Studio.zoomOnda,
       alturaLinha: Studio.alturaLinha || 0,
       mix: todasAsFaixas().map(f => ({
@@ -4591,7 +4928,9 @@ async function studioCarregarEdicoes(d){
       const g = faixaPorId("guia");
       if (g) g.mudo = !Studio.guiaAtiva;
     }
-    if (ed.contagem != null) Studio.contagem = Math.max(0, Math.min(4, Number(ed.contagem) || 0));
+    if (ed.contagem != null) Studio.contagem = Math.max(0, Math.min(8, Number(ed.contagem) || 0));
+    if (ed.contagemVoz) Studio.contagemVoz = ed.contagemVoz === "voz" ? "voz" : "bip";
+    if (ed.vozFonte) Studio.vozFonte = ed.vozFonte === "gravada" ? "gravada" : "sistema";
     invalidarGrade();
     if (Studio.bpmManual || !Studio.batidas.length) gerarBatidasSinteticas();
     if (ed.tom && indiceNota(ed.tom) >= 0){
@@ -4840,12 +5179,27 @@ function studioLigarBotoes(){
   on("trLoop", () => studioAlternarLoop());
 
   // --- pré-contagem: 0 → 1 → 2 compassos ------------------------------
+  // Pré-contagem em TEMPOS: 0 (desligada) → 1 → 2 → ... → 8 → 0.
+  // Antes só alternava 0→1→2 e o texto dizia "compassos", o que não batia com
+  // o que se ouvia (a contagem é 1-2-3-4, não dois compassos inteiros).
   on("trContagem", () => {
     Studio.contagem = (Number(Studio.contagem) || 0) + 1;
-    if (Studio.contagem > 2) Studio.contagem = 0;
+    if (Studio.contagem > 8) Studio.contagem = 0;
     studioAtualizarTransporte();
     marcarSalvo();
   });
+
+  // Som da contagem: bip (metrônomo) ou voz (números cantados).
+  const somContagem = $("trSomContagem");
+  if (somContagem){
+    somContagem.onchange = () => {
+      Studio.contagemVoz = somContagem.value === "voz" ? "voz" : "bip";
+      // escolher "voz" sem contagem ligada não faria nada: liga a contagem
+      if (Studio.contagemVoz === "voz" && !Studio.contagem) Studio.contagem = 4;
+      studioAtualizarTransporte();
+      marcarSalvo();
+    };
+  }
 
   // --- volume geral --------------------------------------------------
   const master = $("masterVol");

@@ -57,7 +57,7 @@ Issues = "https://github.com/MQueirozair/MRQ-VS/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mrqvs = ["web/*.html", "web/*.ico", "web/*.png"]
+mrqvs = ["web/*.html", "web/*.ico", "web/*.png", "web/voz/palavras/*.wav"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

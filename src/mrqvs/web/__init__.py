@@ -138,6 +138,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"versoes": self._biblioteca()})
         elif parsed.path in ("/favicon.ico", "/icone-192.png", "/icone-512.png"):
             self._serve_icone(parsed.path)
+        elif parsed.path.startswith("/api/voz/"):
+            self._serve_voz(parsed.path.rsplit("/", 1)[-1])
         elif parsed.path == "/api/edicoes":
             self._edicoes_ler(parse_qs(parsed.query).get("apoio", [""])[0])
         elif parsed.path == "/api/bib/capa":
@@ -814,6 +816,32 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._json({"ok": True, "pasta": str(alvo)})
 
+    def _serve_voz(self, numero: str) -> None:
+        """Número falado (1..8) para a contagem em voz.
+
+        Devolve 404 quando o áudio não está no pacote — a interface trata isso
+        caindo na voz do sistema, e nada quebra. É de propósito que a ausência
+        seja silenciosa: o programa funciona sem os arquivos de voz.
+        """
+        try:
+            n = int(numero)
+        except (TypeError, ValueError):
+            self._json({"erro": "número inválido"}, 400)
+            return
+        if not 1 <= n <= 8:
+            self._json({"erro": "número fora de 1..8"}, 404)
+            return
+        dados = _voz_bytes(n)
+        if not dados:
+            self._json({"erro": "voz gravada não instalada"}, 404)
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(len(dados)))
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        self.wfile.write(dados)
+
     def _serve_icone(self, rota: str) -> None:
         """Serve o icone do proprio pacote (funciona tambem dentro do .pyz)."""
         nome = rota.lstrip("/")
@@ -1148,6 +1176,22 @@ def _relativo(caminho: Path, raiz: Path) -> str:
         return quote(rel, safe="/")
     except ValueError:
         return quote(resolvido.as_posix(), safe="/")
+
+
+def _voz_bytes(numero: int) -> bytes:
+    """WAV do número falado, lido do pacote (ou do disco em desenvolvimento)."""
+    nome = f"voz/{numero}.wav"
+    base = Path(__file__).parent
+    direto = base / nome
+    if direto.is_file():
+        return direto.read_bytes()
+    try:
+        import pkgutil
+
+        dados = pkgutil.get_data(__name__, nome)
+    except (OSError, ValueError):
+        dados = None
+    return dados or b""
 
 
 def _page() -> str:
