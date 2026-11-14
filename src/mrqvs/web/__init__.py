@@ -32,6 +32,8 @@ from urllib.parse import parse_qs, urlparse
 from .. import __version__, export, project, runtime, separator
 from ..stems import MODEL_STEMS, STEM_ORDER, STEMS, recomendacao
 
+from ..voz import SECOES as VOZ_SECOES  # noqa: E402 - precisa vir com o pacote
+
 _JOB_LOCK = threading.Lock()
 _IA_LOCK = threading.Lock()
 _OUT_ROOT = Path("out").resolve()
@@ -823,15 +825,17 @@ class Handler(BaseHTTPRequestHandler):
         caindo na voz do sistema, e nada quebra. É de propósito que a ausência
         seja silenciosa: o programa funciona sem os arquivos de voz.
         """
-        try:
-            n = int(numero)
-        except (TypeError, ValueError):
-            self._json({"erro": "número inválido"}, 400)
+        # aceita número ("3") e nome de seção ("refrao"): a guia precisa dos
+        # dois, e obrigar o navegador a saber isso seria acoplamento à toa
+        chave = str(numero or "").strip().lower()
+        if chave.isdigit():
+            if not 1 <= int(chave) <= 8:
+                self._json({"erro": "número fora de 1..8"}, 404)
+                return
+        elif chave not in VOZ_SECOES:
+            self._json({"erro": "palavra de voz desconhecida"}, 400)
             return
-        if not 1 <= n <= 8:
-            self._json({"erro": "número fora de 1..8"}, 404)
-            return
-        dados = _voz_bytes(n)
+        dados = _voz_bytes(chave)
         if not dados:
             self._json({"erro": "voz gravada não instalada"}, 404)
             return
@@ -1178,9 +1182,9 @@ def _relativo(caminho: Path, raiz: Path) -> str:
         return quote(resolvido.as_posix(), safe="/")
 
 
-def _voz_bytes(numero: int) -> bytes:
-    """WAV do número falado, lido do pacote (ou do disco em desenvolvimento)."""
-    nome = f"voz/{numero}.wav"
+def _voz_bytes(chave) -> bytes:
+    """WAV de uma palavra falada, lido do pacote (ou do disco em dev)."""
+    nome = f"voz/palavras/{chave}.wav"
     base = Path(__file__).parent
     direto = base / nome
     if direto.is_file():

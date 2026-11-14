@@ -2131,6 +2131,8 @@ const Studio = window.Studio = {
   tomLfo: null,
   tomProf: null,
   tomLigado: false,
+  //: fala o nome da seção no play ao vivo (além do guia.wav exportado)
+  guiaAoVivo: true,
   // --- reprodução ---------------------------------------------------------
   tocando: false,
   tempo: 0,
@@ -4293,29 +4295,60 @@ function tocarVozGravada(quando, numero, ganho, destino){
   }catch(_){ return false; }
 }
 
-/** Baixa os 8 números falados, uma vez por sessão. Falha em silêncio. */
+//: Palavras de seção que o servidor serve em /api/voz/<chave>.
+const VOZ_CHAVES_SECAO = ["intro", "verso", "pre-refrao", "refrao", "ponte",
+                          "solo", "interludio", "final", "musica"];
+
+/** Baixa as palavras faladas (números e nomes de seção), uma vez por sessão.
+ *
+ *  Falha em silêncio e por palavra: o que faltar cai na voz do sistema e
+ *  depois na nota cantada. A guia nunca fica muda por causa de um arquivo.
+ */
 async function carregarVozGravada(){
   if (Studio._vozCarregando || Studio._vozPronta) return;
   Studio._vozCarregando = true;
   const ctx = Studio.ctx || ligarContextoAudio();
   if (!ctx || !ctx.decodeAudioData){ Studio._vozCarregando = false; return; }
   const buf = buffersDaVoz();
+  const chaves = [];
+  for (let n = 1; n <= 8; n++) chaves.push(String(n));
+  chaves.push(...VOZ_CHAVES_SECAO);
   let algum = false;
-  for (let n = 1; n <= 8; n++){
-    if (buf[n]) { algum = true; continue; }
+  for (const chave of chaves){
+    if (buf[chave]) { algum = true; continue; }
     try{
-      const r = await fetch(`/api/voz/${n}`);
+      const r = await fetch(`/api/voz/${chave}`);
       if (!r.ok) continue;
       const dados = await r.arrayBuffer();
-      buf[n] = await new Promise((ok, erro) => {
+      buf[chave] = await new Promise((ok, erro) => {
         const p = ctx.decodeAudioData(dados, ok, erro);
         if (p && p.then) p.then(ok).catch(erro);
       });
       algum = true;
-    }catch(_){ /* número que falta cai na voz do sistema */ }
+    }catch(_){ /* palavra que falta cai na voz do sistema */ }
   }
   Studio._vozPronta = algum;
   Studio._vozCarregando = false;
+}
+
+/** Toca a palavra falada de uma seção ("refrão", "verso"...). */
+function tocarVozSecao(quando, chave, ganho, destino){
+  const ctx = Studio.ctx;
+  if (!ctx || !chave) return false;
+  const buf = buffersDaVoz()[chave];
+  if (!buf) return false;
+  const bus = destino || (faixaClique() && faixaClique().ganho) || Studio.master;
+  if (!bus) return false;
+  try{
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = ganho == null ? 0.95 : ganho;
+    src.connect(g);
+    g.connect(bus);
+    src.start(quando);
+    return true;
+  }catch(_){ return false; }
 }
 
 /**
@@ -4348,6 +4381,50 @@ function tocarNumero(quando, numero, acento, destino){
  *  o agendamento sairia com jitter audível. Com o relógio do AudioContext o
  *  pulso cai no sample certo, e a UI (rAF) só desenha.
  */
+/** Chave do arquivo de voz de uma seção ("Refrão" -> "refrao"). */
+function chaveDeVozDaSecao(nome){
+  const t = String(nome || "").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira os acentos
+    .replace(/[^a-z]/g, "");
+  if (t.indexOf("preref") === 0) return "pre-refrao";
+  if (t.indexOf("refr") === 0) return "refrao";
+  if (t.indexOf("vers") === 0) return "verso";
+  if (t.indexOf("intro") === 0) return "intro";
+  if (t.indexOf("pont") === 0) return "ponte";
+  if (t.indexOf("solo") === 0) return "solo";
+  if (t.indexOf("interlud") === 0) return "interludio";
+  if (t.indexOf("final") === 0) return "final";
+  if (t.indexOf("music") === 0) return "musica";
+  return "";
+}
+
+/**
+ * Anuncia a seção falando o nome dela, no play ao vivo.
+ *
+ * É o mesmo conteúdo do guia.wav exportado, mas sem arquivo: quando o usuário
+ * está ensaiando com o editor aberto, ouvir "refrão" no momento em que o
+ * bloco chega vale mais que o relatório. Só fala quando a fonte é a voz
+ * gravada (a do sistema não agenda e sairia fora do tempo).
+ */
+function agendarSecoesAoVivo(agora, horizonte){
+  if (!Studio.guiaAoVivo) return;
+  if (!Studio.vozFonte || Studio.vozFonte !== "gravada") return;
+  const secoes = Studio.secoes || [];
+  if (!secoes.length) return;
+  const feitos = Studio._secoesFaladas || (Studio._secoesFaladas = {});
+  for (let i = 0; i < secoes.length; i++){
+    const sec = secoes[i];
+    const t = Number(sec.start) || 0;
+    const quando = Studio.clockInicio + (t - Studio.clockOffset);
+    if (quando < agora - 0.01 || quando > horizonte) continue;
+    const marca = `${i}:${Math.round(t * 100) / 100}`;
+    if (feitos[marca]) continue;
+    const chave = chaveDeVozDaSecao(sec.nome || sec.rotulo);
+    if (!chave) continue;
+    if (tocarVozSecao(Math.max(quando, agora), chave, 0.9)) feitos[marca] = true;
+  }
+}
+
 function agendarCliquesLookahead(){
   const ctx = Studio.ctx;
   if (!ctx || !Studio.tocando) return;
@@ -4357,6 +4434,8 @@ function agendarCliquesLookahead(){
   const f = faixaClique();
   const temSolo = todasAsFaixas().some(x => x.solo);
   const audivelAgora = f ? audivel(f, temSolo) : false;
+  // a guia falada da seção entra pela mesma janela do clique
+  agendarSecoesAoVivo(agora, horizonte);
   let guarda = 0;
   while (guarda++ < 600){
     const p = Studio.proximoPulso;
@@ -4455,6 +4534,7 @@ async function studioTocar(){
   Studio.clockOffset = base;
   Studio.proximoPulso = pulsoEm(base);
   Studio.agendados = [];
+  Studio._secoesFaladas = {};
   Studio.tocando = true;
   Studio.finalizado = false;
   if (duracaoContagem) agendarContagem(agora + espera, temposDeContagem, base);
