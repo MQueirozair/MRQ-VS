@@ -263,6 +263,26 @@
     min-height:0}
   .studio.sem-min{min-height:0}
 
+  /* MODO "TODAS AS FAIXAS" (padrão): o Studio não corta a lista.
+     Antes a altura era `clamp(420px, 100vh - 260px, 940px)`, fixa. Se as
+     faixas somassem mais que isso, a última aparecia pela metade e o
+     transporte ficava POR CIMA dela (foi o que o usuário reportou 3x).
+     Aqui `height:auto` + `max-height:none`: o corpo cresce, todas as faixas
+     aparecem inteiras e o transporte desce junto, sempre abaixo da última.
+     O `--altura-todas` é calculado por studioSincronizarAlturas() — se não
+     couber nem no máximo, o modo volta a ser o de rolagem (`.com-rolagem`). */
+  .studio.todas-visiveis{
+    height:auto;
+    max-height:none;
+    overflow:visible}
+  .studio.todas-visiveis .studio-corpo{flex:none;
+    height:var(--altura-todas, auto)}
+  .studio.todas-visiveis .painel-faixas,
+  .studio.todas-visiveis .studio-tempo{overflow:visible}
+  /* dentro do teto, a lista inteira precisa caber: se a soma passar do teto,
+     studioSincronizarAlturas() reduz a altura de linha em degraus */
+  .studio.todas-visiveis .studio-transporte{position:relative;z-index:8}
+
   /* ---------- cabeçalho ---------- */
   .studio-topo{display:flex;align-items:center;gap:11px;padding:9px 12px;
                border-bottom:1px solid var(--line);background:#11161d;flex:none}
@@ -653,10 +673,14 @@
   body.sem-lateral .lateral{display:none}
   body.sem-lateral .app{grid-template-columns:minmax(0,1fr)}
   body.sem-lateral .studio{height:clamp(360px, calc(100vh - 190px), 1100px)}
+  /* o modo "todas as faixas" vence os breakpoints: sem teto de tela */
+  body.sem-lateral .studio.todas-visiveis{height:auto;
+    max-height:none}
 
   /* telas grandes: painel proporcionalmente maior, faixas mais altas */
   @media (min-width:1600px){
     .studio{--painel:260px;--h-linha:78px;height:clamp(420px, calc(100vh - 300px), 1100px)}
+    .studio.todas-visiveis{height:auto;max-height:none}
   }
   @media (min-width:2100px){
     .studio{--painel:300px;--h-linha:84px;height:clamp(480px, calc(100vh - 320px), 1200px)}
@@ -665,6 +689,7 @@
   @media (max-height:820px){
     .studio{--h-linha:72px;height:clamp(360px, calc(100vh - 210px), 740px)}
     body.sem-lateral .studio{height:calc(100vh - 140px)}
+    body.sem-lateral .studio.todas-visiveis{height:auto;max-height:none}
   }
 
   /* telas menores: painel mais estreito, transporte quebra em duas linhas */
@@ -2553,6 +2578,9 @@ function studioMontar(d){
   }
   $("studio").style.display = "flex";
   $("studio").classList.remove("sem-min");
+  // o Studio acabou de sair de `display:none`: medir agora daria zero.
+  // Um quadro depois, o layout já existe e dá para decidir o modo certo.
+  requestAnimationFrame(() => { studioSincronizarAlturas(); });
 
   $("studioNome").textContent = d.titulo || d.nome_pasta || "Música";
   $("studioIcone").innerHTML =
@@ -3081,7 +3109,15 @@ function calcularAlturaQueCabe(){
 /** Aplica a altura calculada às faixas. Barato e idempotente: pode rodar a
  *  cada quadro de rolagem/redimensionamento sem redesenhar as ondas. */
 function studioAplicarAltura(){
-  const plano = calcularAlturaQueCabe();
+  // Em modo "todas as faixas" a altura de linha vem do cálculo que faz a LISTA
+  // INTEIRA caber (o Studio cresce para isso). Sem esta precedência, o
+  // `calcularAlturaQueCabe()` — que raciocina sobre a janela do painel —
+  // espremia tudo em 30/44 px e brigava com o modo novo.
+  const alturas = Studio._modoTodas ? medidasParaTodasAsFaixas() : null;
+  const plano = alturas
+    ? {altura: alturas.alturaLinha, minima: alturas.alturaLinha < 40,
+       cabe: alturas.cabe}
+    : calcularAlturaQueCabe();
   Studio.alturaAuto = plano.altura;
   Studio.alturaMinima = plano.minima;
   const base = plano.altura;
@@ -3107,11 +3143,92 @@ function studioAplicarAltura(){
   return plano;
 }
 
+/** Teto de altura do Studio em modo "todas as faixas".
+ *
+ *  Sem teto, um projeto de 30 faixas geraria uma página de 3000 px. Com teto,
+ *  quem passa do limite cai no modo de rolagem (com o degradê e o contador).
+ *  O teto é generoso: 2,2× a altura da janela, no mínimo 1400 px — cabe um
+ *  6-stem folgado e um projeto de 12 faixas em tela cheia.
+ */
+function tetoDoStudio(){
+  const vh = (window && window.innerHeight) || 900;
+  return Math.max(1400, Math.round(vh * 2.2));
+}
+
+/** Calcula quanto mede o corpo (régua + cifra + faixas) e quanto mede o
+ *  Studio inteiro (corpo + cabeçalho + transporte) para TODAS as faixas
+ *  caberem sem rolagem.
+ *
+ *  Devolve `{corpo, studio, alturaLinha, cabe}`. Se `cabe` for falso, o
+ *  chamador mantém o modo de rolagem com a altura de linha mínima.
+ */
+function medidasParaTodasAsFaixas(){
+  const studio = $("studio");
+  const total = todasAsFaixas().length;
+  if (!studio || !total) return {corpo: 0, studio: 0, alturaLinha: alturaBase(), cabe: false};
+  // No modo "todas as faixas" quem manda é a preferência NEUTRA (76 px), não a
+  // `--h-linha` do breakpoint. Senão, numa janela estreita com `--h-linha:72px`,
+  // o cálculo descia um degrau a mais e espremia tudo em 30 px sem necessidade:
+  // o Studio cresce de propósito, então pode usar a linha confortável.
+  const desejada = Studio.alturaLinha || 76;
+  // partes fixas, medidas de verdade quando possível
+  const regua = $("regua"), cifra = $("linhaCifra"), topo = studio.querySelector(".studio-topo"),
+        transp = $("studioTransporte");
+  const hRegua = (regua && regua.offsetHeight) || 42;
+  const hCifra = (cifra && cifra.offsetHeight) || 42;
+  const hTopo = (topo && topo.offsetHeight) || 53;
+  const hTransp = (transp && transp.offsetHeight) || 66;
+  const fixas = hRegua + hCifra;
+  const cromo = hTopo + hTransp + 2;          // 2 px de borda
+  const teto = tetoDoStudio();
+
+  // escolhe a maior altura de linha que faz tudo caber dentro do teto
+  for (const nivel of [desejada, 76, 66, 54, 44, 38, 30]){
+    if (nivel > desejada) continue;
+    const corpo = fixas + total * nivel;
+    if (corpo + cromo <= teto)
+      return {corpo, studio: corpo + cromo, alturaLinha: nivel, cabe: true};
+  }
+  const corpo = fixas + total * 30;
+  return {corpo, studio: corpo + cromo, alturaLinha: 30, cabe: corpo + cromo <= teto};
+}
+
+/** Liga/desliga o modo "todas as faixas" (sem rolagem).
+ *
+ *  O usuário pediu três vezes que os botões do play ficassem ABAIXO da última
+ *  faixa. Enquanto o Studio tiver altura fixa de tela (`clamp(...)`), a lista
+ *  que não couber é cortada e o transporte parece "em cima" da última faixa.
+ *  Aqui o Studio cresce até a lista inteira caber, e o transporte desce com
+ *  ele. Quando nem com 30 px por linha cabe no teto, voltamos à rolagem —
+ *  aí sim com o aviso e o degradê dizendo que há mais embaixo.
+ */
+function studioAjustarModoTodasAsFaixas(){
+  const studio = $("studio");
+  if (!studio) return;
+  const podeCrescer = !(Studio.alturaLinha > 0);   // slider manual = rolagem
+  const plano = medidasParaTodasAsFaixas();
+  const usar = podeCrescer && plano.cabe && plano.corpo > 0;
+  studio.classList.toggle("todas-visiveis", usar);
+  studio.classList.toggle("com-rolagem", !usar);
+  if (usar){
+    studio.style.setProperty("--altura-todas", plano.corpo + "px");
+  } else {
+    studio.style.removeProperty("--altura-todas");
+  }
+  Studio._modoTodas = usar;
+  return plano;
+}
+
 function studioSincronizarAlturas(){
+  // 1) decide o modo (crescer x rolar) 2) aplica a altura coerente com ele
+  // 3) desenha 4) mede a rolagem. A ordem importa: aplicar antes de decidir
+  // usaria a altura da janela e espremeria as faixas sem necessidade.
+  studioAjustarModoTodasAsFaixas();
   studioAplicarAltura();
   studioDesenharFaixas();
   studioDesenharTrilhas();
   studioPosicionarCabeca();
+  studioAjustarModoTodasAsFaixas();   // reavalia com as medidas reais
   studioAtualizarRolagemPainel();
 }
 
@@ -4989,6 +5106,28 @@ function studioLigarBotoes(){
     studioSincronizarAlturas();
     studioDesenhar();
   });
+
+  // O modo "todas as faixas" depende da ALTURA REAL do cabeçalho e do
+  // transporte, que só existem depois do layout. Um ResizeObserver no Studio
+  // recalcula quando a fonte termina de carregar, quando um botão muda de
+  // altura ou quando a barra lateral abre/fecha — sem esperar um F5.
+  if (typeof ResizeObserver === "function" && $("studio")) {
+    let _ultimoAlvo = 0;
+    const observador = new ResizeObserver(() => {
+      if (Studio._ajustando) return;
+      const alvo = studioAjustarModoTodasAsFaixas();
+      // só re-sincroniza se a decisão mudou: evita laço de observação
+      if (!alvo || alvo.corpo === _ultimoAlvo) return;
+      _ultimoAlvo = alvo.corpo;
+      Studio._ajustando = true;
+      try {
+        studioAplicarAltura();
+        studioAtualizarRolagemPainel();
+        studioAjustarModoTodasAsFaixas();
+      } finally { Studio._ajustando = false; }
+    });
+    observador.observe($("studio"));
+  }
 }
 
 // ---------------------------------------------- rolagem vertical em sincronia -

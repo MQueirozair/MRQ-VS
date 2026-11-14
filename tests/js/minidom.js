@@ -26,6 +26,9 @@ class El {
     const estilo = {};
     estilo.setProperty = (k, v) => { estilo[k] = v; };
     estilo.getPropertyValue = (k) => estilo[k] || "";
+    // CSSStyleDeclaration também sabe REMOVER: o modo "todas as faixas" tira
+    // --altura-todas quando volta para a rolagem.
+    estilo.removeProperty = (k) => { delete estilo[k]; };
     this.style = estilo;
     this.dataset = {};
     this.classList = new ClassList(this);
