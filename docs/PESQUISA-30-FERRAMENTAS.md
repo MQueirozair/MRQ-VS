@@ -1228,8 +1228,16 @@ Sendo explícito, para você não ser surpreendido:
 
 # 12. Próximo passo
 
-Abra `selecao-30-ferramentas.html`, marque **só** o que você quer, escolha a prioridade de cada
-uma e clique em **Confirmar seleção**. O resumo que a página gerar é o que eu uso para escrever o
+A seleção existe em **três lugares** — escolha o que for mais confortável, o conteúdo é o mesmo:
+
+| Onde | Como usar |
+|---|---|
+| **Notion** — *MRQ Audio Studio — Seleção das 30 ferramentas* | 30 caixas de marcar agrupadas por categoria. Marque e me avise: eu leio a página de volta. |
+| **HTML** (`docs/selecao-30-ferramentas.html`) | 30 checkboxes com totais ao vivo, prioridade, "Confirmar seleção" e export JSON. Também enviado para o seu Google Drive. |
+| **Este documento** | Serve de referência: as fichas completas estão nas seções acima. |
+
+Nada vem pré-marcado em nenhum dos três. Marque **só** o que você quer, defina a prioridade e
+confirme. O resumo que a página gerar é o que eu uso para escrever o
 plano de implementação (fases, arquivos, testes, ordem). Enquanto você não confirmar, eu não
 implemento nada.
 
