@@ -1352,3 +1352,151 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
     # no markup sobra só o span do estado: nada de pulsos como texto
     assert r["markup"] == "sem contagem"
     assert r["tem123"] is False
+
+
+# --------------------------------------------------------------------------
+# 8. O botão do menu lateral no cabeçalho + rolagem visível das faixas
+# --------------------------------------------------------------------------
+def test_botao_do_menu_lateral_fica_no_cabecalho_e_sincroniza_os_dois():
+    """O botão existia só dentro do Studio, então a tela inicial não tinha como
+    recolher "Minhas músicas". Agora há um no cabeçalho, ao lado da versão, e os
+    dois espelham o MESMO estado — clicar num não pode deixar o outro aceso.
+
+    Antes também havia dois lugares acendendo botão (handler e restauração do
+    localStorage), cada um com uma cópia da regra.
+    """
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    # o botão está dentro de .janela-botoes, depois da versão (posição da foto 2)
+    janela = html[html.index('class="janela-botoes"'):html.index("</header>")]
+    assert 'id="fMenuTopo"' in janela
+    assert janela.index("versaoTopo") < janela.index("fMenuTopo")
+    # o estado "ligado" não pode depender da classe .ferr (o botão saiu dela)
+    assert ".ferr.on,.botao-icone.on{" in html
+
+    saida = _rodar_node(
+        """
+        const {montar} = require("./harness");
+        const h = montar();
+        const sb = h.sandbox, doc = h.doc;
+        const topo = doc.getElementById("fMenuTopo");
+        const barra = doc.getElementById("fMenu");
+        const estado = () => ({
+          body: doc.body.classList.contains("sem-lateral"),
+          topo: topo.classList.contains("on"),
+          topoAria: topo.getAttribute("aria-pressed"),
+          barra: barra.classList.contains("on"),
+          barraAria: barra.getAttribute("aria-pressed"),
+        });
+        const passos = [estado()];
+        topo.onclick();  passos.push(estado());   // pelo cabeçalho
+        barra.onclick(); passos.push(estado());   // pela barra do Studio
+        topo.onclick();  passos.push(estado());   // de novo no cabeçalho
+        console.log(JSON.stringify(passos));
+        """
+    )
+    passos = json.loads(saida.strip().splitlines()[-1])
+    assert passos[0]["body"] is False
+    for passo, esperado in zip(passos[1:], (True, False, True), strict=True):
+        assert passo["body"] is passo["topo"] is passo["barra"] is esperado
+        assert passo["topoAria"] == ("true" if esperado else "false")
+        assert passo["barraAria"] == passo["topoAria"]
+
+
+def test_estado_salvo_acende_os_dois_botoes_antes_de_abrir_musica():
+    """Recarregar com o menu recolhido tem de acender também o botão do topo."""
+    saida = _rodar_node(
+        """
+        const fs = require("fs"), path = require("path"), vm = require("vm");
+        const {Document} = require("./minidom");
+        const html = fs.readFileSync(
+          path.resolve(__dirname, "..", "..", "src", "mrqvs", "web", "index.html"), "utf8");
+        const js = /<script[^>]*>([\\s\\S]*?)<\\/script>/.exec(html)[1];
+        const doc = new Document();
+        const ids = ["fMenuTopo", "fMenu", "versaoTopo", "bibAtualizar", "bibPasta"];
+        for (const id of ids) doc.criar(id, "div");
+        const sandbox = {
+          document: doc, window: null, location: {origin: "", href: ""},
+          console: {log() {}, warn() {}, error() {}},
+          fetch: () => Promise.resolve({ok: false, json: () => Promise.resolve({})}),
+          localStorage: {_d: {"mrqvs.semLateral": "1"},
+            getItem(k) { return this._d[k] || null; }, setItem(k, v) { this._d[k] = v; }},
+          setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
+          addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 1,
+          cancelAnimationFrame() {}, getComputedStyle: () => ({getPropertyValue: () => ""}),
+          Math, JSON, Object, Array, Number, String, Boolean, Promise, Error, RegExp,
+          Date, Set, Map, isFinite, parseInt, parseFloat, URL, Float32Array, Uint8Array,
+          devicePixelRatio: 1, innerWidth: 1440, innerHeight: 900, performance: {now: () => 0},
+        };
+        sandbox.window = sandbox; sandbox.globalThis = sandbox;
+        vm.createContext(sandbox);
+        new vm.Script(js).runInContext(sandbox, {timeout: 20000});
+        const topo = doc.getElementById("fMenuTopo"), barra = doc.getElementById("fMenu");
+        console.log(JSON.stringify({
+          body: doc.body.classList.contains("sem-lateral"),
+          topo: topo.classList.contains("on"), topoAria: topo.getAttribute("aria-pressed"),
+          barra: barra.classList.contains("on"), barraAria: barra.getAttribute("aria-pressed"),
+        }));
+        """
+    )
+    r = json.loads(saida.strip().splitlines()[-1])
+    assert r["body"] is True
+    assert r["topo"] is True and r["topoAria"] == "true"
+    assert r["barra"] is True and r["barraAria"] == "true"
+
+
+def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
+    """8 faixas em 586 px de altura: duas ficavam abaixo da dobra e a rolagem
+    era invisível (`scrollbar-width:none` + `::-webkit-scrollbar{display:none}`),
+    então a lista parecia ter sido cortada.
+
+    Agora: barra de rolagem visível, classe `tem-mais` no painel enquanto há
+    conteúdo oculto e o contador "N faixas · K à vista".
+    """
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    assert ".painel-faixas::-webkit-scrollbar{display:none}" not in html
+    assert ".painel-faixas::-webkit-scrollbar{width:11px}" in html
+    assert ".studio-painel.tem-mais::after" in html
+    # o transporte não flutua mais sobre as últimas faixas
+    assert "position:sticky;bottom:0;z-index:8}" not in html
+
+    dados = {
+        "titulo": "Rolagem", "nome_pasta": "R", "pasta": "/tmp/r", "apoio": "",
+        "bpm": 96, "tonalidade": "G maior", "compasso": 4, "denominador": 4,
+        "duracao": 24,
+        "estudio": {"batidas": [], "compasso": 4, "bpm": 96, "duracao": 24,
+                    "tonalidade": "G maior", "acordes": [], "secoes": []},
+        "arquivos": {
+            k: {"nome": f"r_{k}.wav", "audio": True, "url": f"/x/{k}.wav"}
+            for k in ("mix", "vocals", "drums", "bass", "guitar", "piano", "other")
+        },
+    }
+    saida = _rodar_node(
+        f"""
+        const {{montar}} = require("./harness");
+        const h = montar({json.dumps(dados)});
+        const sb = h.sandbox, doc = h.doc;
+        const painel = doc.getElementById("painelFaixas");
+        const caixa = doc.getElementById("studioPainel");
+        const contagem = doc.getElementById("painelContagem");
+        const base = sb.alturaBase();
+        // 3 faixas visíveis num painel de 228 px = conteúdo maior que a janela
+        painel.clientHeight = base * 3;
+        painel.scrollHeight = base * 7;
+        painel.scrollTop = 0;
+        sb.studioAtualizarRolagemPainel();
+        const noTopo = {{temMais: caixa.classList.contains("tem-mais"),
+                         texto: contagem.textContent, dica: contagem.title}};
+        // rolando até o fim, o degradê some
+        painel.scrollTop = painel.scrollHeight - painel.clientHeight;
+        sb.studioAtualizarRolagemPainel();
+        const noFim = {{temMais: caixa.classList.contains("tem-mais")}};
+        console.log(JSON.stringify({{base, faixas: doc.querySelectorAll("#painelFaixas .faixa").length,
+          noTopo, noFim}}));
+        """
+    )
+    r = json.loads(saida.strip().splitlines()[-1])
+    assert r["faixas"] == 7
+    assert r["noTopo"]["temMais"] is True
+    assert r["noTopo"]["texto"] == "7 faixas · 3 à vista"
+    assert "abaixo" in r["noTopo"]["dica"]
+    assert r["noFim"]["temMais"] is False

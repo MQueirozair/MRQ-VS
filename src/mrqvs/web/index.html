@@ -296,7 +296,19 @@
     border-radius:7px;width:28px;height:26px;cursor:pointer;font-size:13px;
     display:flex;align-items:center;justify-content:center;padding:0}
   .ferr:hover{color:var(--text);border-color:#3a4757}
-  .ferr.on{color:#08170f;background:var(--accent);border-color:var(--accent)}
+  /* O ESTADO "ligado" não pertence à classe .ferr: o mesmo botão agora vive
+     também no cabeçalho, fora da barra de ferramentas. Sem essa separação, o
+     botão do cabeçalho não acenderia (era `on` só dentro de .ferr). */
+  .ferr.on,.botao-icone.on{color:#08170f;background:var(--accent);border-color:var(--accent)}
+  /* botão de ícone genérico (cabeçalho e barra): mesma aparência, sem herdar
+     tamanho de barra de ferramentas */
+  .botao-icone{background:#161e27;border:1px solid var(--line);color:var(--muted);
+    border-radius:8px;width:30px;height:28px;cursor:pointer;font-size:13px;
+    display:flex;align-items:center;justify-content:center;padding:0;flex:none}
+  .botao-icone:hover{color:var(--text);border-color:#3a4757}
+  .botao-icone svg{width:15px;height:15px;fill:none;stroke:currentColor;
+    stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .janela-botoes{display:flex;align-items:center;gap:10px}
   .ferr-sep{width:1px;height:18px;background:var(--line);margin:0 3px;flex:none}
   .ferr-campo{display:flex;align-items:center;gap:5px;font-size:11px;
     color:var(--muted);white-space:nowrap}
@@ -317,6 +329,10 @@
     font-size:10.5px;color:var(--muted);letter-spacing:.05em}
   .painel-formula{font-weight:700;color:#c9d4e0;font-variant-numeric:tabular-nums}
   .painel-info{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* "8 faixas · 7 à vista": o aviso de que há mais embaixo, sem ocupar o
+     espaço do nome da seção (painelInfo continua sendo a seção atual) */
+  .painel-contagem{margin-left:auto;flex:none;font-size:9.5px;letter-spacing:.04em;
+    color:#5c6673;font-variant-numeric:tabular-nums;white-space:nowrap}
   .painel-linha{height:var(--h-cifra);display:flex;align-items:center;gap:6px;
     padding:0 9px;border-bottom:1px solid var(--line);flex:none;
     font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
@@ -325,9 +341,22 @@
     border-radius:5px;padding:2px 6px;cursor:pointer;font-family:inherit;
     text-transform:none}
   .painel-mini.on{background:#243049;border-color:#3a4c6b;color:#cfe0ff}
+  /* A rolagem do painel era INVISÍVEL (`scrollbar-width:none` +
+     `::-webkit-scrollbar{display:none}`). Com 8 faixas e 586 px de altura útil,
+     duas ficavam abaixo da dobra sem nenhuma pista — o usuário lia como "as
+     faixas sumiram" (Guitarra/Piano/violão extra da captura). Agora a barra é
+     a mesma da timeline e há um degradê no rodapé enquanto há conteúdo oculto. */
   .painel-faixas{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
-    scrollbar-width:none}
-  .painel-faixas::-webkit-scrollbar{display:none}
+    scrollbar-width:thin;scrollbar-color:#2b3644 #0d1218}
+  .painel-faixas::-webkit-scrollbar{width:11px}
+  .painel-faixas::-webkit-scrollbar-thumb{background:#2b3644;border-radius:6px}
+  .painel-faixas::-webkit-scrollbar-track{background:#0d1218}
+  /* o degradê vive no painel (não nas faixas) e some quando tudo está à vista */
+  .studio-painel{position:relative}
+  .studio-painel::after{content:"";position:absolute;left:0;right:11px;bottom:0;
+    height:26px;pointer-events:none;opacity:0;transition:opacity .15s;
+    background:linear-gradient(180deg,rgba(13,18,24,0),rgba(13,18,24,.96))}
+  .studio-painel.tem-mais::after{opacity:1}
 
   /* uma linha de faixa: painel (esquerda) e onda (direita) têm a MESMA altura */
   .faixa{display:flex;flex-direction:column;height:var(--h-linha);flex:none;
@@ -502,8 +531,11 @@
      quebra de linha antes de encostar na leitura. */
   .studio-transporte{display:flex;align-items:center;gap:10px 14px;padding:9px 12px;
     background:#11161d;border-top:1px solid var(--line);flex:none;flex-wrap:wrap;
-    /* o transporte não sai da tela: em altura pequena ele continua visível */
-    position:sticky;bottom:0;z-index:8}
+    /* O transporte é o último filho do .studio (que é flex column e tem
+       overflow:hidden) — `flex:none` já o mantém sempre visível. O
+       `position:sticky` era o problema: em janela baixa a barra flutuava POR
+       CIMA das últimas faixas, escondendo justamente o fim da lista. */
+    position:relative;z-index:8}
   .tr-grupo{display:flex;align-items:center;gap:6px;flex:none}
   .tr-btn{position:relative;width:38px;height:38px;border-radius:10px;
     background:#18202a;border:1px solid #253140;color:#c3cedb;cursor:pointer;
@@ -709,6 +741,15 @@
        usuário). Ele some e o espaço fica para quem precisa: a versão. -->
   <div class="janela-botoes">
     <span class="janela-titulo" id="versaoTopo" title="versão do programa">—</span>
+    <!-- O botão de esconder o menu lateral nasceu dentro da barra do Studio e
+         só existia depois de abrir uma música — quem chegava na tela inicial
+         não tinha como recolher a coluna "Minhas músicas". Aqui ele fica
+         sempre visível, ao lado da versão. -->
+    <button class="botao-icone" id="fMenuTopo" type="button"
+            title="Esconder o menu lateral e aumentar a área de trabalho"
+            aria-label="Esconder o menu lateral" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h16"/></svg>
+    </button>
   </div>
 </header>
 <main>
@@ -1038,6 +1079,7 @@ python -m pip install demucs</pre>
           <div class="painel-topo">
             <span class="painel-formula" id="painelFormula">4/4</span>
             <span class="painel-info" id="painelInfo"></span>
+            <span class="painel-contagem" id="painelContagem" title="faixas no painel"></span>
           </div>
           <div class="painel-linha painel-cifra">
             <span>Cifra</span>
@@ -2896,6 +2938,33 @@ function alturaBase(){
   return Math.max(54, Math.min(160, Math.round(valor || 76)));
 }
 
+/** Marca o painel quando existe faixa abaixo da dobra.
+ *
+ *  Sem isso a rolagem (que agora é visível) é a única pista; com a classe
+ *  `tem-mais` o rodapé do painel ganha um degradê que some ao chegar no fim.
+ *  Também alimenta o contador "N de M faixas" do cabeçalho do painel.
+ */
+function studioAtualizarRolagemPainel(){
+  const painel = $("painelFaixas");
+  const caixa = $("studioPainel");
+  if (!painel || !caixa) return;
+  const esconde = painel.scrollHeight - painel.clientHeight - painel.scrollTop > 2;
+  caixa.classList.toggle("tem-mais", esconde && painel.scrollHeight > painel.clientHeight + 2);
+  const contagem = $("painelContagem");
+  if (contagem){
+    const total = painel.querySelectorAll(".faixa").length;
+    const visiveis = painel.clientHeight > 0
+      ? Math.max(1, Math.floor(painel.clientHeight / Math.max(1, alturaBase())))
+      : total;
+    contagem.textContent = total > visiveis
+      ? `${total} faixas · ${visiveis} à vista`
+      : (total ? `${total} faixas` : "");
+    contagem.title = total > visiveis
+      ? `há ${total - visiveis} faixa(s) abaixo — role o painel ou diminua a altura das linhas`
+      : "todas as faixas estão à vista";
+  }
+}
+
 function studioSincronizarAlturas(){
   const base = alturaBase();
   const compacta = base < 68;
@@ -2909,6 +2978,7 @@ function studioSincronizarAlturas(){
   studioDesenharFaixas();
   studioDesenharTrilhas();
   studioPosicionarCabeca();
+  studioAtualizarRolagemPainel();
 }
 
 function studioDefinirAltura(px){
@@ -4469,6 +4539,33 @@ async function criarAtalhoDesktop(){
   }
 }
 
+// --------------------------------------------------- menu lateral -----------
+/** Esconde/mostra a coluna "Minhas músicas". `forcar` permite restaurar o
+ *  estado salvo no boot sem alternar duas vezes.
+ *
+ *  Saía em dois lugares (handler do botão e restauração do localStorage) e
+ *  cada um acendia um botão diferente; agora o estado do `body` é a única
+ *  verdade e TODOS os botões são espelhados a partir dele.
+ */
+function alternarMenuLateral(forcar){
+  const sem = forcar === undefined
+    ? document.body.classList.toggle("sem-lateral")
+    : !!forcar;
+  document.body.classList.toggle("sem-lateral", sem);
+  for (const id of ["fMenu", "fMenuTopo"]){
+    const b = $(id);
+    if (!b) continue;
+    b.classList.toggle("on", sem);
+    b.setAttribute("aria-pressed", sem ? "true" : "false");
+  }
+  try{ localStorage.setItem("mrqvs.semLateral", sem ? "1" : "0"); }catch(_){}
+  // o botão do Studio também esconde a própria barra de ferramentas? não:
+  // ele apenas recolhe a coluna lateral, então a única coisa a refazer é a
+  // escala e o desenho (a largura útil mudou).
+  setTimeout(() => { calcEscala(); studioDesenhar(); }, 60);
+  return sem;
+}
+
 // ------------------------------------------------------------- botões -------
 function studioLigarBotoes(){
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
@@ -4652,15 +4749,12 @@ function studioLigarBotoes(){
   };
 
   // --- painel lateral / modo ao vivo --------------------------------
-  on("fMenu", () => {
-    const sem = document.body.classList.toggle("sem-lateral");
-    if ($("fMenu")){
-      $("fMenu").classList.toggle("on", sem);
-      $("fMenu").setAttribute("aria-pressed", sem ? "true" : "false");
-    }
-    try{ localStorage.setItem("mrqvs.semLateral", sem ? "1" : "0"); }catch(_){}
-    setTimeout(() => { calcEscala(); studioDesenhar(); }, 60);
-  });
+  // Dois botões, UMA ação: o do cabeçalho (sempre visível) e o da barra do
+  // Studio. Ter dois handlers separados seria a receita para um deles ficar
+  // aceso com o menu aberto — o defeito que o usuário descreveu como
+  // "o botão não aparece no lugar certo".
+  on("fMenu", () => alternarMenuLateral());
+  on("fMenuTopo", () => alternarMenuLateral());
   on("studioAoVivo", () => {
     Studio.aoVivo = document.body.classList.toggle("ao-vivo");
     $("studioAoVivo").classList.toggle("on", Studio.aoVivo);
@@ -4709,7 +4803,11 @@ function studioLigarBotoes(){
     painel.addEventListener("scroll", () => {
       if (pendenteP) return;
       pendenteP = true;
-      requestAnimationFrame(() => { pendenteP = false; sincronizarScroll("painel"); });
+      requestAnimationFrame(() => {
+        pendenteP = false;
+        sincronizarScroll("painel");
+        studioAtualizarRolagemPainel();   // o degradê some ao chegar no fim
+      });
     });
   }
 
@@ -4925,11 +5023,9 @@ function ligarDicas(){
 studioLigarBotoes();
 ligarDicas();
 try {
-  if (localStorage.getItem("mrqvs.semLateral") === "1"){
-    document.body.classList.add("sem-lateral");
-    $("fMenu").classList.add("on");
-    $("fMenu").setAttribute("aria-pressed", "true");
-  }
+  // Restaura o estado salvo já acendendo OS DOIS botões — antes o do cabeçalho
+  // não existia e o do Studio só era sincronizado depois de abrir uma música.
+  if (localStorage.getItem("mrqvs.semLateral") === "1") alternarMenuLateral(true);
 } catch (e) {}
 
 $("bibAtualizar").addEventListener("click", () => carregarBiblioteca());

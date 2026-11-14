@@ -92,6 +92,7 @@ function montar(dados, opcoes) {
     "expMix", "expProjeto", "expPasta", "expAtalho", "expLR", "expClique",
     "expGuia", "expRelatorio", "menuExportar", "studioExportar",
     "studioAoVivo", "ferrDica", "cifraEditar", "dicaFlutuante",
+    "fMenuTopo", "painelContagem",
   ];
   for (const id of ids) {
     const el = doc.criar(id, id === "fImportarInput" ? "input" : "div");
