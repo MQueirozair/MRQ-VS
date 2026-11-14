@@ -555,10 +555,16 @@ def test_clique_usa_lookahead_do_audiocontext_e_nao_setinterval_como_relogio():
     sem_comentarios = re.sub(r"(?m)^\s*//.*$", "", sem_comentarios)
     assert "setInterval(" not in sem_comentarios, "o relógio do Studio não pode ser setInterval"
     assert "requestAnimationFrame" in js
-    # o agendador tem de disparar osciladores no relógio do contexto
-    trecho = js[js.index("function tocarPulsoClique"): js.index("function agendarCliquesLookahead")]
+    # o agendador tem de disparar osciladores no relógio do contexto — o som
+    # sai de `tocarBip` (90 ms, com corpo), e `tocarPulsoClique` escolhe a
+    # altura do número contado antes de chamá-lo
+    trecho = js[js.index("function tocarBip"): js.index("function agendarCliquesLookahead")]
     assert "createOscillator" in trecho
     assert "osc.start(quando)" in trecho
+    # o pulso é que decide a altura: o bip sozinho não sabe qual número é
+    pulso = js[js.index("function tocarPulsoClique"): js.index("function modoDaContagem")]
+    assert "tocarBip" in pulso
+    assert "TOM_DO_NUMERO" in pulso
 
 
 def test_clique_agenda_pulsos_e_respeita_acentos_compostos():
@@ -607,7 +613,13 @@ def test_clique_agenda_pulsos_e_respeita_acentos_compostos():
     assert r["ordem"][3] == 1320
 
 
-def test_pre_contagem_e_contagem_de_compassos():
+def test_pre_contagem_conta_tempos_e_nao_compassos():
+    """A pré-contagem conta 1-2-3-4, e não "N compassos inteiros".
+
+    Antes, pedir 2 contava 8 pulsos a partir do compasso atual e o play
+    entrava um pedaço à frente do que o usuário estava vendo — a contagem
+    "não batia" com o compasso da tela. Pedir 4 tempos = 4 pulsos, sempre.
+    """
     fonte = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
     js = fonte.split("<script>")[1].split("</script>")[0]
     assert "function agendarContagem" in js
@@ -629,14 +641,25 @@ def test_pre_contagem_e_contagem_de_compassos():
           o.start = function (t) {{ cliques.push(t); s.call(o, t); return; }};
           return o;
         }};
-        S.contagem = 2;
-        const usados = sb.agendarContagem(ctx.currentTime, 2, 0);
-        console.log(JSON.stringify({{cliques: cliques.length, usados, barra: sb.duracaoDoCompasso(0)}}));
+        S.contagem = 4;
+        const usados = sb.agendarContagem(ctx.currentTime, 4, 0);
+        // meio compasso também: 2 tempos de 4/4 = 2 pulsos
+        const cliquesMeio = cliques.length;
+        const usados2 = sb.agendarContagem(ctx.currentTime, 2, 0);
+        console.log(JSON.stringify({{
+          cliques: cliquesMeio,
+          usados,
+          barra: sb.duracaoDoCompasso(0),
+          pulsos2: cliques.length - cliquesMeio,
+          usados2,
+        }}));
         """
     )
     r = json.loads(saida.strip().splitlines()[-1])
-    assert r["cliques"] == 8, "2 compassos de 4/4 = 8 pulsos"
-    assert r["usados"] == pytest.approx(2 * r["barra"])
+    assert r["cliques"] == 4, "4 tempos de 4/4 = 4 pulsos"
+    assert r["usados"] == pytest.approx(r["barra"]), "4 tempos = 1 compasso de duração"
+    assert r["pulsos2"] == 2, "2 tempos = 2 pulsos"
+    assert r["usados2"] == pytest.approx(r["barra"] / 2)
 
 
 def test_guia_e_clique_sao_independentes_e_solo_do_clique_funciona():
@@ -1092,7 +1115,7 @@ def test_pre_contagem_atrasa_a_entrada_da_banda():
         const S = h.Studio, sb = h.sandbox, ctx = h.ctx;
         sb.studioMontar({json.dumps(dados)});
         (async () => {{
-          S.contagem = 2;
+          S.contagem = 4;
           await sb.studioTocar();
           const atraso = S.clockInicio - ctx.currentTime;
           console.log(JSON.stringify({{atraso, barra: sb.duracaoDoCompasso(0),
@@ -1101,9 +1124,9 @@ def test_pre_contagem_atrasa_a_entrada_da_banda():
         """
     )
     r = json.loads(saida.strip().splitlines()[-1])
-    # 2 compassos de 100 BPM 4/4 = 4.8 s de contagem (+ 60 ms de folga)
+    # 4 tempos de 100 BPM 4/4 = 2.4 s de contagem (+ 60 ms de folga)
     assert r["barra"] == pytest.approx(2.4)
-    assert r["atraso"] == pytest.approx(4.8 + 0.06, abs=0.02)
+    assert r["atraso"] == pytest.approx(2.4 + 0.06, abs=0.02)
     assert r["tocando"] is True
 
 
@@ -1307,6 +1330,10 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
     como texto, então a leitura saía como um número colado na frase. O botão
     passou a ter ícone próprio e um `<span>` com o estado; este teste percorre
     o ciclo 0 → 1 → 2 → 0 e confere texto, classe e dica a cada passo.
+
+    O texto agora fala em TEMPOS e diz qual som está escolhido ("1 tempo ·
+    bip"), porque é isso que o músico ouve: a contagem é 1-2-3-4, não dois
+    compassos inteiros.
     """
     dados = {
         "titulo": "Contagem", "nome_pasta": "C", "pasta": "/tmp/c", "apoio": "",
@@ -1330,7 +1357,8 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
         const passos = [];
         S.contagem = 0; sb.studioAtualizarTransporte();
         passos.push(lido());
-        for (let i = 0; i < 3; i++){
+        // o ciclo é 0 → 1 → … → 8 → 0: são 9 cliques para voltar ao começo
+        for (let i = 0; i < 9; i++){
           doc.getElementById("trContagem").onclick();
           passos.push(lido());
         }
@@ -1347,11 +1375,14 @@ def test_texto_da_pre_contagem_e_legivel_e_o_botao_mostra_o_estado():
     r = json.loads(saida.strip().splitlines()[-1])
     p = r["passos"]
     assert p[0]["texto"] == "sem contagem" and p[0]["ligado"] is False
-    assert p[1]["contagem"] == 1 and p[1]["texto"] == "1 compasso de contagem"
-    assert p[1]["ligado"] is True and "1 compasso" in p[1]["dica"]
-    assert p[2]["contagem"] == 2 and p[2]["texto"] == "2 compassos de contagem"
-    assert p[3]["contagem"] == 0 and p[3]["texto"] == "sem contagem"
-    assert p[3]["ligado"] is False
+    assert p[1]["contagem"] == 1 and p[1]["texto"] == "1 tempo · bip"
+    assert p[1]["ligado"] is True and "1 tempo" in p[1]["dica"]
+    assert p[2]["contagem"] == 2 and p[2]["texto"] == "2 tempos · bip"
+    # vai até 8 tempos e volta a desligar
+    assert p[7]["contagem"] == 7 and p[7]["texto"] == "7 tempos · bip"
+    assert p[8]["contagem"] == 8
+    assert p[9]["contagem"] == 0 and p[9]["texto"] == "sem contagem"
+    assert p[9]["ligado"] is False
     # no markup sobra só o span do estado: nada de pulsos como texto
     assert r["markup"] == "sem contagem"
     assert r["tem123"] is False
@@ -1448,12 +1479,12 @@ def test_estado_salvo_acende_os_dois_botoes_antes_de_abrir_musica():
 
 
 def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
-    """8 faixas em 586 px de altura: duas ficavam abaixo da dobra e a rolagem
-    era invisível (`scrollbar-width:none` + `::-webkit-scrollbar{display:none}`),
-    então a lista parecia ter sido cortada.
+    """Projeto grande demais para o teto: a rolagem precisa se anunciar.
 
-    Agora: barra de rolagem visível, classe `tem-mais` no painel enquanto há
-    conteúdo oculto e o contador "N faixas · K à vista".
+    O modo padrão agora é "crescer até caber" (o Studio ganha altura e o
+    transporte desce para baixo da última faixa). Quando nem isso resolve —
+    projeto enorme — o painel volta a rolar, e aí sim precisa de barra visível,
+    degradê e o contador "N faixas · K à vista".
     """
     html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
     assert ".painel-faixas::-webkit-scrollbar{display:none}" not in html
@@ -1461,6 +1492,8 @@ def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
     assert ".studio-painel.tem-mais::after" in html
     # o transporte não flutua mais sobre as últimas faixas
     assert "position:sticky;bottom:0;z-index:8}" not in html
+    # e existe um modo que cresce em vez de cortar
+    assert ".studio.todas-visiveis" in html
 
     dados = {
         "titulo": "Rolagem", "nome_pasta": "R", "pasta": "/tmp/r", "apoio": "",
@@ -1478,32 +1511,39 @@ def test_painel_de_faixas_mostra_que_ha_mais_faixas_abaixo():
         const {{montar}} = require("./harness");
         const h = montar({json.dumps(dados)});
         const sb = h.sandbox, doc = h.doc;
+
+        // projeto grande: 60 faixas passam do teto de altura (o teto cobre
+        // ~50 faixas em 30 px). Abaixo disso o Studio cresce em vez de rolar.
+        const arquivos = {{}};
+        for (let i = 0; i < 60; i++)
+          arquivos["s" + i] = {{nome: "s" + i + ".wav", audio: true, url: "/x"}};
+        sb.studioMontar(Object.assign({{}}, h.Studio.dados, {{arquivos}}));
+
         const painel = doc.getElementById("painelFaixas");
         const caixa = doc.getElementById("studioPainel");
         const contagem = doc.getElementById("painelContagem");
-        const base = sb.alturaBase();
-        // Painel baixo de propósito (90 px): nem com 30 px por linha as 7
-        // faixas cabem, então o degradê e o contador de "à vista" aparecem.
-        painel.clientHeight = 90;
-        painel.scrollHeight = 490;
+        painel.clientHeight = 400;
+        painel.scrollHeight = 2200;
         painel.scrollTop = 0;
         sb.studioSincronizarAlturas();
         sb.studioAtualizarRolagemPainel();
         const noTopo = {{temMais: caixa.classList.contains("tem-mais"),
-                         texto: contagem.textContent, dica: contagem.title}};
+                         texto: contagem.textContent, dica: contagem.title,
+                         rolagem: doc.getElementById("studio").classList.contains("com-rolagem")}};
         // rolando até o fim, o degradê some
         painel.scrollTop = painel.scrollHeight - painel.clientHeight;
         sb.studioAtualizarRolagemPainel();
         const noFim = {{temMais: caixa.classList.contains("tem-mais")}};
-        console.log(JSON.stringify({{base, faixas: doc.querySelectorAll("#painelFaixas .faixa").length,
+        console.log(JSON.stringify({{faixas: doc.querySelectorAll("#painelFaixas .faixa").length,
           noTopo, noFim}}));
         """
     )
     r = json.loads(saida.strip().splitlines()[-1])
-    assert r["faixas"] == 7
+    assert r["faixas"] >= 60   # 60 stems + clique/guia, conforme o motor montar
+    assert r["noTopo"]["rolagem"] is True      # passou do teto: modo rolagem
     assert r["noTopo"]["temMais"] is True
-    assert r["noTopo"]["texto"] == "7 faixas · 3 à vista"
-    assert "abaixo" in r["noTopo"]["dica"]
+    assert "à vista" in r["noTopo"]["texto"]
+    assert "abaixo" in r["noTopo"]["dica"] or "Tudo" in r["noTopo"]["dica"]
     assert r["noFim"]["temMais"] is False
 
 
@@ -1601,12 +1641,19 @@ def test_biblioteca_mostra_carregando_antes_de_listar():
     assert r2["conta"] == "1 música"
 
 
-def test_todas_as_faixas_cabem_na_tela_sem_rolagem():
-    """Foto 3: só a primeira faixa aparecia e o resto ficava fora da vista.
+def test_todas_as_faixas_cabem_e_transporte_fica_abaixo_da_ultima():
+    """O usuário reclamou 3x: os botões do play ficavam EM CIMA da última faixa.
 
-    O cálculo agora é de trás para frente: cabem todas na altura preferida? se
-    não, desce um degrau; no fim, o modo mínimo é uma linha única de 30 px —
-    é o que faz um projeto grande caber numa tela só.
+    A causa era a altura FIXA do Studio (`clamp(420px, 100vh - 260px, 940px)`):
+    se as faixas somavam mais que isso, a última era cortada ao meio e o
+    transporte — que vem logo depois no flex column — parecia sobrepor a lista.
+
+    Agora o padrão é CRESCER: o Studio ganha a altura exata do conteúdo
+    (régua + cifra + todas as faixas) e o transporte desce com ele. Este teste
+    guarda as duas metades do contrato:
+
+    1. lista que cabe no teto  → cresce, todas inteiras, transporte embaixo;
+    2. lista que passa do teto → volta a rolar, com degradê e contador.
     """
     dados = _dados_com_muitos_stems()
     r = json.loads(
@@ -1616,64 +1663,87 @@ def test_todas_as_faixas_cabem_na_tela_sem_rolagem():
             const h = montar();
             const sb = h.sandbox, doc = h.doc;
             sb.studioMontar({json.dumps(dados)});
+            const studio = doc.getElementById("studio");
             const painel = doc.getElementById("painelFaixas");
             const caixaPainel = doc.getElementById("studioPainel");
             const contagem = doc.getElementById("painelContagem");
+            const transporte = doc.getElementById("studioTransporte");
+
+            // alturas do cromo, como no navegador
+            doc.getElementById("regua").offsetHeight = 42;
+            doc.getElementById("linhaCifra").offsetHeight = 42;
+            transporte.offsetHeight = 66;
+            sb.window.innerHeight = 900;
+
             const total = painel.querySelectorAll(".faixa").length;
-            const casos = {{}};
-            const medir = (nome, altura) => {{
-              painel.clientHeight = altura;
-              // conteúdo bem maior que a janela: o degradê tem limiar de 2 px
-              painel.scrollHeight = altura + 400;
-              painel.scrollTop = 0;
-              sb.studioSincronizarAlturas();
-              sb.studioAtualizarRolagemPainel();
-              const usada = parseFloat(painel.children[0].style.height);
-              casos[nome] = {{
-                usada, totalPx: usada * total, cabe: usada * total <= altura,
-                minima: painel.children[0].classList.contains("minima"),
-                texto: contagem.textContent,
-                temMais: caixaPainel.classList.contains("tem-mais"),
-              }};
-            }};
-            // alturas relativas ao número real de faixas do fixture: assim o
-            // teste não depende de 7, 9 ou 12 linhas
-            medir("amplo", total * 200);
-            medir("apertado", total * 60);
-            medir("minimo", total * 32);
-            medir("impossivel", 90);
-            console.log(JSON.stringify({{total, casos}}));
+            painel.clientHeight = 400;
+            painel.scrollHeight = 400;
+            painel.scrollTop = 0;
+            sb.studioSincronizarAlturas();
+
+            // ---- 1) o Studio cresce até a lista caber -------------------
+            assert.ok(studio.classList.contains("todas-visiveis"),
+              "com " + total + " faixas deve crescer, não rolar");
+            const alturaCorpo = parseFloat(studio.style.getPropertyValue("--altura-todas"));
+            const linha = parseFloat(painel.children[0].style.height);
+            assert.ok(alturaCorpo > 0, "o corpo precisa de altura explícita");
+
+            // a altura cobre as faixas INTEIRAS: régua + cifra + n × linha
+            const precisa = 42 + 42 + total * linha;
+            assert.ok(alturaCorpo >= precisa,
+              "corpo " + alturaCorpo + " < necessário " + precisa);
+
+            // ---- 2) o transporte não flutua mais sobre a lista ---------
+            // (o minidom não materializa `studio.children`, então a ordem do
+            // DOM é verificada no HTML mais abaixo; aqui checamos o que o
+            // navegador realmente aplica: nada de sticky)
+            assert.strictEqual(studio.classList.contains("com-rolagem"), false);
+            assert.strictEqual(transporte.style.position || "relative", "relative",
+              "o transporte não é mais sticky");
+
+            // nenhuma faixa fica abaixo da dobra do próprio painel
+            assert.ok(linha * total <= alturaCorpo, "todas as faixas cabem no corpo");
+            assert.ok(!caixaPainel.classList.contains("tem-mais"),
+              "sem degradê quando tudo está à vista");
+
+            // ---- 3) projeto grande: aí sim rola, e avisa ----------------
+            const arquivos = {{}};
+            for (let i = 0; i < 60; i++)
+              arquivos["s" + i] = {{nome: "s" + i + ".wav", audio: true, url: "/x"}};
+            sb.studioMontar(Object.assign({{}}, h.Studio.dados, {{arquivos}}));
+            painel.clientHeight = 400;
+            painel.scrollHeight = 2200;
+            painel.scrollTop = 0;
+            sb.studioSincronizarAlturas();
+            sb.studioAtualizarRolagemPainel();
+            assert.strictEqual(studio.classList.contains("com-rolagem"), true);
+            assert.strictEqual(studio.classList.contains("todas-visiveis"), false);
+            assert.ok(contagem.textContent.includes("à vista"), contagem.textContent);
+            assert.ok(caixaPainel.classList.contains("tem-mais"));
+
+            console.log(JSON.stringify({{total, alturaCorpo, linha}}));
             """
         ).strip().splitlines()[-1]
     )
-    total = r["total"]
-    c = r["casos"]
-    assert total >= 7
+    assert r["total"] >= 7
+    assert r["linha"] > 0
+    assert r["alturaCorpo"] >= 42 + 42 + r["total"] * r["linha"]
 
-    # espaço de sobra: nada encolhe, todas à vista, sem degradê
-    assert c["amplo"]["usada"] * total <= total * 200
-    assert c["amplo"]["texto"] == f"{total} faixas"
-    assert c["amplo"]["temMais"] is False
-
-    # painel apertado: encolhe e AINDA mostra todas (o pedido do usuário)
-    assert c["apertado"]["cabe"] is True
-    assert c["apertado"]["texto"] == f"{total} faixas"
-    assert c["apertado"]["temMais"] is False
-
-    # painel muito baixo: modo mínimo de uma linha, e continua cabendo
-    assert c["minimo"]["minima"] is True
-    assert c["minimo"]["usada"] == 30
-    assert c["minimo"]["cabe"] is True
-    assert c["minimo"]["temMais"] is False
-
-    # caso impossível: rolagem honesta + contador dizendo que há mais abaixo
-    assert c["impossivel"]["cabe"] is False
-    assert "à vista" in c["impossivel"]["texto"]
-    assert c["impossivel"]["temMais"] is True
+    # o transporte é o último filho do .studio no HTML: com height:auto ele
+    # desce para baixo da última faixa em vez de ficar por cima
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    corpo_e_transporte = html.split('id="studio"', 1)[1]
+    assert corpo_e_transporte.index('id="studioCorpo"') < corpo_e_transporte.index('id="studioTransporte"')
+    assert "position:sticky" not in html.split(".studio-transporte{", 1)[1].split("}", 1)[0]
 
 
 def test_botao_tudo_volta_ao_automatico_e_anuncia_o_resultado():
-    """O usuário precisa de um caminho de um clique para "ver todas"."""
+    """O botão "Tudo" existe para desfazer uma escolha manual de altura.
+
+    Quando o usuário estica as linhas no slider, o app respeita (é escolha
+    dele) e o painel passa a rolar. O botão zera essa preferência e devolve o
+    modo padrão: crescer até a última faixa aparecer inteira.
+    """
     html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
     assert 'id="fFaixasTudo"' in html
     dados = _dados_com_muitos_stems()
@@ -1684,40 +1754,110 @@ def test_botao_tudo_volta_ao_automatico_e_anuncia_o_resultado():
             const h = montar();
             const sb = h.sandbox, doc = h.doc;
             sb.studioMontar({json.dumps(dados)});
+            const studio = doc.getElementById("studio");
             const painel = doc.getElementById("painelFaixas");
             const contagem = doc.getElementById("painelContagem");
+            doc.getElementById("regua").offsetHeight = 42;
+            doc.getElementById("linhaCifra").offsetHeight = 42;
+            doc.getElementById("studioTransporte").offsetHeight = 66;
+            sb.window.innerHeight = 900;
             const total = painel.querySelectorAll(".faixa").length;
-            // altura exata para todas caberem no modo mínimo (30 px por linha)
-            painel.clientHeight = total * 30;
+            painel.clientHeight = 400;
             painel.scrollHeight = 900;
             painel.scrollTop = 0;
 
-            // o usuário esticou as linhas: não cabe tudo
+            // o usuário esticou as linhas: o app respeita e volta a rolar
             sb.Studio.alturaLinha = 120;
             sb.studioSincronizarAlturas();
             sb.studioAtualizarRolagemPainel();
             const antes = {{usada: parseFloat(painel.children[0].style.height),
-                            cabeTudo: sb.Studio._cabeTudo,
+                            rolagem: studio.classList.contains("com-rolagem"),
                             texto: contagem.textContent}};
             assert.strictEqual(antes.usada, 120);
-            assert.strictEqual(antes.cabeTudo, false);
-            assert.ok(antes.texto.includes("à vista"), antes.texto);
+            assert.strictEqual(antes.rolagem, true);
 
-            // um clique em "Tudo": volta ao automático e as faixas aparecem
+            // um clique em "Tudo": volta ao automático e cresce até caber
             sb.Studio.alturaLinha = 0;
             sb.studioSincronizarAlturas();
             sb.studioAtualizarRolagemPainel();
             const depois = {{usada: parseFloat(painel.children[0].style.height),
-                             cabeTudo: sb.Studio._cabeTudo,
-                             texto: contagem.textContent,
-                             minima: painel.children[0].classList.contains("minima")}};
-            assert.ok(depois.usada < antes.usada, depois.usada);
-            assert.strictEqual(depois.cabeTudo, true);
-            assert.strictEqual(depois.texto, total + " faixas");
+                             todas: studio.classList.contains("todas-visiveis"),
+                             corpo: parseFloat(studio.style.getPropertyValue("--altura-todas")),
+                             texto: contagem.textContent}};
+            assert.ok(depois.usada < antes.usada, "a linha precisa diminuir");
+            assert.strictEqual(depois.todas, true);
+            assert.ok(depois.corpo >= 84 + total * depois.usada);
+            // o texto vem do painel medido (400 px no harness), não do corpo
+            // que o Studio passou a ter: o que importa aqui é voltar ao modo
+            assert.ok(depois.texto.indexOf(total + " faixas") === 0, depois.texto);
             console.log(JSON.stringify({{total, antes, depois}}));
             """
         ).strip().splitlines()[-1]
     )
-    assert r["antes"]["cabeTudo"] is False
-    assert r["depois"]["cabeTudo"] is True
-    assert r["depois"]["usada"] * r["total"] <= r["total"] * 30
+    assert r["antes"]["rolagem"] is True
+    assert r["depois"]["todas"] is True
+
+
+def test_modo_crescer_vence_em_qualquer_altura_de_janela():
+    """O Studio cresce em vez de comprimir, em qualquer tamanho de tela.
+
+    Antes o cálculo considerava a janela: 9 faixas em 900 px viravam 44 px de
+    linha, e em tela pequena as últimas ficavam fora. Com o modo "crescer", a
+    altura de linha não deve mais depender da altura da janela — só do teto.
+    """
+    dados = _dados_com_muitos_stems()
+    saida = _rodar_node(
+        f"""
+        const {{montar}} = require("./harness");
+        const h = montar();
+        const sb = h.sandbox, doc = h.doc;
+        sb.studioMontar({json.dumps(dados)});
+        doc.getElementById("regua").offsetHeight = 42;
+        doc.getElementById("linhaCifra").offsetHeight = 42;
+        doc.getElementById("studioTransporte").offsetHeight = 66;
+        const studio = doc.getElementById("studio");
+        const painel = doc.getElementById("painelFaixas");
+        const total = painel.querySelectorAll(".faixa").length;
+        const porJanela = {{}};
+        for (const janela of [600, 768, 900, 1080, 1440]) {{
+          sb.window.innerHeight = janela;
+          painel.clientHeight = 400;
+          painel.scrollHeight = 400;
+          painel.scrollTop = 0;
+          sb.Studio.alturaLinha = 0;
+          sb.studioSincronizarAlturas();
+          porJanela[janela] = {{
+            linha: parseFloat(painel.children[0].style.height),
+            corpo: parseFloat(studio.style.getPropertyValue("--altura-todas")) || 0,
+            cresceu: studio.classList.contains("todas-visiveis"),
+          }};
+        }}
+        console.log(JSON.stringify({{total, porJanela}}));
+        """
+    )
+    r = json.loads(saida.strip().splitlines()[-1])
+    total = r["total"]
+    alturas = {j: v for j, v in r["porJanela"].items()}
+
+    for janela, v in alturas.items():
+        assert v["cresceu"] is True, f"janela {janela}: deveria crescer"
+        # o corpo reserva espaço para régua + cifra + TODAS as faixas inteiras
+        assert v["corpo"] >= 84 + total * v["linha"], f"janela {janela}: corpo curto"
+
+
+def test_estrutura_do_studio_permite_o_transporte_descer():
+    """Verificação estática: nada no CSS pode voltar a fixar/sobrepor a barra."""
+    html = (RAIZ / "src" / "mrqvs" / "web" / "index.html").read_text(encoding="utf-8")
+    # o transporte é flex:none e relative — nunca sticky nem fixed
+    # (a regra base quebra em várias linhas, e existe outra com modificador)
+    bloco = html.split("\n  .studio-transporte{display:flex", 1)[1].split("}", 1)[0]
+    # sem comentários: o texto pode citar `sticky` para explicar o bug antigo
+    css = re.sub(r"/\*.*?\*/", " ", bloco, flags=re.S)
+    assert "position:relative" in css
+    assert "sticky" not in css
+    assert "fixed" not in css
+    assert "flex:none" in css  # o painel é quem rola, não a barra
+    assert "flex:none" in bloco
+    # e existe o modo que remove a altura fixa
+    assert ".studio.todas-visiveis{" in html
+    assert "height:auto" in html.split(".studio.todas-visiveis{", 1)[1].split("}", 1)[0]

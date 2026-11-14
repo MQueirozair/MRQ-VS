@@ -19,6 +19,7 @@ python -m PyInstaller --onefile --console --name mrq-vs \
   --add-data "src/mrqvs/web/favicon.ico${SEP}mrqvs/web" \
   --add-data "src/mrqvs/web/icone-192.png${SEP}mrqvs/web" \
   --add-data "src/mrqvs/web/icone-512.png${SEP}mrqvs/web" \
+  --add-data "src/mrqvs/web/voz/palavras${SEP}mrqvs/web/voz/palavras" \
   src/mrqvs/_build.py
 
 echo

@@ -30,6 +30,7 @@ from . import analysis as analysis_mod
 from . import acordes as acordes_mod
 from . import cover, derive, dsp, export, guia as guia_mod, media, naming, report, separator
 from . import stems as stems_mod
+from . import __version__
 
 
 @dataclass
@@ -60,6 +61,9 @@ class ProjectOptions:
     dois_stems: str = ""
     #: faixa de GUIA (contagem + anúncio de seção), como no CueWee
     guia: bool = True
+    #: fala os números e o nome da seção (pt-BR) em vez de só a melodia.
+    #: Quando um arquivo de voz falta, aquela entrada volta para a melodia.
+    guia_voz: bool = True
     #: quantos tempos de contagem antes de cada seção
     contagem: int = 4
     #: subdivisões do clique por tempo (1 = só os tempos; 2 = colcheias)
@@ -163,6 +167,10 @@ class ProjectResult:
     studio: StudioData = field(default_factory=StudioData)
     #: `ENSAIO_LR.wav` na pasta de áudio (clique+guia | banda); None se off
     lr: Path | None = None
+    #: `projeto.mrqvs.json` na pasta de apoio — o projeto multitrack editável
+    projeto_vs: Path | None = None
+    #: cifra exportada em texto/ChordPro/CSV: {"txt": caminho, ...}
+    cifra_arquivos: dict[str, Path] = field(default_factory=dict)
 
 
 class PipelineError(RuntimeError):
@@ -432,18 +440,35 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
                     compasso=compasso,
                     subdivisao=options.subdivisao,
                 )
+            # 9b-1. ESTRUTURA: dar nome às seções (Intro/Verso/Refrão/...).
+            # A análise separa os trechos por semelhança e chama de A/B/C; a
+            # banda chama de verso e refrão, e é esse nome que a guia fala.
+            # Fica antes da guia de propósito: a guia anuncia o nome musical.
+            try:
+                from . import estrutura as estrutura_mod
+
+                nomeadas = estrutura_mod.nomear_secoes(
+                    analysed.sections,
+                    energia_de=lambda sec: getattr(sec, "loudness_db", 0.0),
+                )
+            except Exception as exc:  # noqa: BLE001 - nomear é heurística
+                nomeadas = []
+                warnings.append(f"não foi possível nomear as seções: {exc}")
+
             if options.guia:
                 try:
                     entradas = guia_mod.compor(
-                        analysed.sections, analysed.tempo.beat_times,
+                        analised_para_guia(analysed.sections, nomeadas),
+                        analysed.tempo.beat_times,
                         contagem=options.contagem,
                     )
                     if entradas:
                         guia_path = apoio / "guia.wav"
-                        guia_mod.escrever_audio(
-                            guia_path, sample_rate, entradas, duration
+                        resultado_guia = guia_mod.escrever_audio(
+                            guia_path, sample_rate, entradas, duration,
+                            com_voz=bool(getattr(options, "guia_voz", True)),
                         )
-                        warnings.append(guia_mod.resumo(entradas))
+                        warnings.append(guia_mod.resumo(entradas, resultado_guia))
                 except Exception as exc:  # noqa: BLE001 - guia é bônus
                     warnings.append(f"não foi possível gerar a guia: {exc}")
 
@@ -469,15 +494,18 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
         # rótulo A/B da análise espectral. O rótulo A/B diz "estes trechos se
         # parecem", que é verdade e é útil, mas não é o que a banda chama a
         # seção. `guia.nome_da_secao` faz a tradução e admite o que não sabe.
-        secoes_studio = [
-            {
-                "start": round(s.start, 2),
-                "end": round(s.end, 2),
-                "rotulo": s.label,
-                "nome": guia_mod.nome_da_secao(s.label),
-            }
-            for s in analysed.sections
-        ]
+        if nomeadas:
+            secoes_studio = [n.as_dict() for n in nomeadas]
+        else:
+            secoes_studio = [
+                {
+                    "start": round(s.start, 2),
+                    "end": round(s.end, 2),
+                    "rotulo": s.label,
+                    "nome": guia_mod.nome_da_secao(s.label),
+                }
+                for s in analysed.sections
+            ]
         studio = StudioData(
             batidas=list(analysed.tempo.beat_times),
             compasso=compasso,
@@ -516,6 +544,45 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             fmt=export_opts.fmt,
             sample_rate=sample_rate,
         )
+        # 9d. projeto multitrack + cifra exportada ------------------------
+        # O `projeto.json` é a análise (pode ser refeita). O que o usuário
+        # edita depois — volume, ordem das faixas, cifra corrigida — vive no
+        # `projeto.mrqvs.json`, ao lado. Gerar agora significa que reabrir a
+        # música já encontra o projeto pronto, com a régua e a cifra certas.
+        projeto_vs_path: Path | None = None
+        cifra_arquivos: dict[str, Path] = {}
+        try:
+            from . import projeto_vs as projeto_vs_mod
+
+            projeto = projeto_vs_mod.ProjetoVS.de_resultado(
+                ProjectResult(
+                    folder=folder,
+                    media=info,
+                    analysis=analysed,
+                    stems_written=written,
+                    backend=result.backend,
+                    model=result.model,
+                    warnings=warnings,
+                    elapsed=0.0,
+                    compasso=compasso,
+                    compasso_confianca=compasso_conf,
+                    acordes=acordes,
+                    guia=guia_path,
+                    lr=lr,
+                    studio=studio,
+                ),
+                version=__version__,
+            )
+            projeto_vs_path = projeto.salvar()
+            # chave curta ("txt", "chordpro", "csv"): é o que a tela usa
+            cifra_arquivos = {
+                chave.removeprefix("cifra_"): Path(caminho)
+                for chave, caminho in projeto.exportar_apoio().items()
+                if chave.startswith("cifra_")
+            }
+        except Exception as exc:  # noqa: BLE001 - projeto é bônus, não derruba
+            warnings.append(f"não foi possível gerar o projeto multitrack: {exc}")
+
         # Logs crus: úteis quando o usuário pede ajuda no fórum.
         (apoio / "log").mkdir(exist_ok=True)
         for log in log_dir.glob("*.log"):
@@ -543,6 +610,8 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             guia=guia_path,
             lr=lr,
             studio=studio,
+            projeto_vs=projeto_vs_path,
+            cifra_arquivos=cifra_arquivos,
         )
     finally:
         if options.keep_work:
@@ -594,6 +663,28 @@ def _somar_audio(*fontes, sample_rate: int = 44100):
     for p in pedacos:
         saida[: p.size] += p
     return saida
+
+
+def analised_para_guia(secoes, nomeadas) -> list:
+    """Seções com o nome musical, no formato que a guia fala.
+
+    `guia.compor` lê ``start``/``end``/``label`` e traduz o rótulo pelo dicionário
+    `NOMES_SECAO`. Aqui os rótulos são substituídos pelo NOME que a estrutura
+    concluiu ("Refrão"), de forma que a contagem e o anúncio falem a palavra
+    certa sem a guia precisar conhecer regra de estrutura musical.
+    """
+    if not nomeadas:
+        return list(secoes or [])
+
+    class _SecaoFalada:
+        __slots__ = ("start", "end", "label")
+
+        def __init__(self, inicio, fim, rotulo):
+            self.start = float(inicio)
+            self.end = float(fim)
+            self.label = str(rotulo)
+
+    return [_SecaoFalada(n.inicio, n.fim, n.nome) for n in nomeadas]
 
 
 def _write_click(
