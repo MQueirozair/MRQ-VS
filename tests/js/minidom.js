@@ -77,6 +77,14 @@ class El {
       if (cl) el.className = cl[1];
       const val = /value="([^"]*)"/.exec(attrs);
       if (val) el.value = val[1];
+      // `selected` no HTML define o valor inicial do <select>, como no
+      // navegador. Sem isto, um teste de "o padrão é MP3" lia "" e culpava o
+      // produto por um buraco do mini-DOM.
+      if (m[1] === "option" && /\bselected\b/.test(attrs)) {
+        el.selected = true;
+        el._paiSelect = this;
+        this.value = el.value;
+      }
       // data-* vira dataset (o Studio lê compasso/inicio/agrupado por ali)
       const reData = /data-([\w-]+)="([^"]*)"/g;
       let d;
@@ -158,15 +166,20 @@ class El {
   closest() { return null; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] || null; }
   querySelectorAll(sel) {
-    const out = [];
-    const passo = (el) => {
-      for (const c of el.children) {
-        if (casa(c, sel)) out.push(c);
-        passo(c);
+    // Busca nos filhos (e netos) DESTE elemento, reaproveitando o mesmo
+    // seletor do documento: o Studio faz `pop.querySelectorAll("[data-acao]")`
+    // e `select.querySelectorAll("option")`. Uma versão só de tag/id/classe
+    // deixava `[data-acao]` sem resultado e parecia que o painel não tinha
+    // botões.
+    const achados = [];
+    const anda = (el) => {
+      for (const filho of el.children || []) {
+        if (casa(filho, sel)) achados.push(filho);
+        anda(filho);
       }
     };
-    passo(this);
-    return out;
+    anda(this);
+    return achados;
   }
 }
 

@@ -101,10 +101,19 @@ function montar(dados, opcoes) {
     "studioAoVivo", "ferrDica", "cifraEditar", "dicaFlutuante",
     "fMenuTopo", "painelContagem",
     "fFaixasTudo", "bibCarregando",
+    // seletor de formato: o teste "o padrão é MP3" precisa das opções reais
+    "fmt", "fmtDica", "model",
   ];
   for (const id of ids) {
     const el = doc.criar(id, id === "fImportarInput" ? "input" : "div");
     if (id === "fCompasso") el.value = "4/4";
+    if (id === "fmt") {
+      // espelha o HTML: MP3 é o padrão, WAV e MP4 na lista
+      el.tagName = "SELECT";
+      el.innerHTML = '<option value="mp3" selected>MP3 (leve)</option>'
+        + '<option value="wav">WAV (estúdio)</option><option value="mp4">MP4 (vídeo)</option>';
+      el.value = "mp3";
+    }
   }
   // o corpo do studio precisa de métricas previsíveis
   doc.getElementById("studioCorpo").clientWidth = 900;

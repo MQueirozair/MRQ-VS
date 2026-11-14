@@ -21,11 +21,13 @@ puro, então é o único que sempre dá para testar.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import dsp, runtime
+from . import dsp, media, runtime
 
 
 class SeparationError(RuntimeError):
@@ -245,10 +247,16 @@ def detect_backends() -> list[BackendStatus]:
             "instalado por você — usando como alternativa ao demucs"
             if ok_sp
             else (
-                "substituído: exige TensorFlow 2.12.1, que só existe até o "
-                "Python 3.11. Use o caminho 'leve' (open-unmix) ou o modo "
-                "'só voz + instrumental', que faz o mesmo trabalho e mais "
-                "rápido."
+                # O texto anterior dizia que o Spleeter "só existe até o
+                # Python 3.11" e mandava usar outra coisa. Testado: instala e
+                # separa no 3.11 (pip install spleeter → 4 stems de 12 s sem
+                # erro). O que falta de verdade numa máquina Linux sem ffmpeg
+                # é o binário ffmpeg/ffprobe, que o Spleeter exige para ler
+                # qualquer áudio — e aí ele morre com um erro seco.
+                "opcional (não instalado). Roda no Python 3.10 e 3.11, mas "
+                "exige o ffmpeg no sistema: instale com "
+                "'python -m pip install spleeter' e tenha ffmpeg no PATH. "
+                "Na 3.12+ prefira o caminho 'leve' (open-unmix)."
             ),
             sp_version,
             opcional=True,
@@ -581,6 +589,29 @@ def _separate_audio_separator(
 # -- spleeter -----------------------------------------------------------------
 
 
+def _ambiente_com_ffmpeg() -> dict:
+    """Ambiente para o Spleeter, com o ffmpeg do app visível no PATH.
+
+    O Spleeter não recebe o caminho do ffmpeg: ele procura `ffmpeg` e
+    `ffprobe` no PATH do processo e, se não acha, morre com
+    "ERROR:spleeter:ffmpeg binary not found" — sem dizer onde procurou. Se o
+    programa já sabe onde está o ffmpeg (inclusive o do wheel
+    `imageio-ffmpeg`), a pasta dele entra na frente do PATH.
+    """
+    env = dict(os.environ)
+    ffmpeg = media.find_tool("ffmpeg")
+    if not ffmpeg:
+        return env
+    pasta = str(Path(ffmpeg).parent)
+    env["PATH"] = pasta + os.pathsep + env.get("PATH", "")
+    # O `ffprobe` tem de estar ao lado: o Spleeter usa os dois. O wheel do
+    # imageio-ffmpeg traz só o ffmpeg, e derivar um ffprobe dele é tarefa do
+    # usuário — então avisamos em vez de deixar o erro aparecer no fim.
+    if not (Path(pasta) / "ffprobe").exists() and not shutil.which("ffprobe"):
+        env["MRQVS_FFPROBE_AUSENTE"] = "1"
+    return env
+
+
 def _separate_spleeter(
     audio_path: Path, out_dir: Path, model: str, log_path: Path | None
 ) -> SeparationResult:
@@ -591,14 +622,32 @@ def _separate_spleeter(
     if base is None:
         raise SeparationError("spleeter", "nenhum Python encontrado para rodar o Spleeter")
     cmd = base
-    proc = _run(cmd, log_path)
-    if proc.returncode != 0:
-        raise SeparationError("spleeter", "o Spleeter falhou", proc.stderr)
+    env = _ambiente_com_ffmpeg()
+    proc = _run(cmd, log_path, env=env)
+    saida = (proc.stderr or "") + (proc.stdout or "")
+    # O Spleeter ANUNCIA o erro de ffmpeg no log e mesmo assim SAI COM 0. Era
+    # por isso que a tela mostrava "terminou sem gerar stems" (o sintoma) em
+    # vez do motivo: a checagem precisa ser pelo texto, não pelo código de saída.
+    faltou_ffmpeg = "ffmpeg binary not found" in saida or "ffprobe binary not found" in saida
+    if faltou_ffmpeg or proc.returncode != 0:
+        if faltou_ffmpeg:
+            # O erro cru não diz o que fazer. Este é o caso comum: spleeter
+            # instalado, ffmpeg ausente do PATH.
+            qual = "ffprobe" if "ffprobe binary not found" in saida else "ffmpeg"
+            raise SeparationError(
+                "spleeter",
+                f"o Spleeter precisa do {qual} no PATH.\n"
+                "  Windows: winget install Gyan.FFmpeg   |   "
+                "macOS: brew install ffmpeg   |   Linux: sudo apt install ffmpeg\n"
+                "  (ou use o motor 'leve' — open-unmix — que não precisa de ffmpeg)",
+                saida,
+            )
+        raise SeparationError("spleeter", "o Spleeter falhou", saida)
     found: dict[str, Path] = {}
     for wav in sorted(out_dir.rglob("*.wav")):
         found[wav.stem] = wav
     if not found:
-        raise SeparationError("spleeter", "o Spleeter terminou sem gerar stems", proc.stdout)
+        raise SeparationError("spleeter", "o Spleeter terminou sem gerar stems", saida)
     sample_rate = 44100
     try:
         import soundfile as sf
@@ -987,6 +1036,15 @@ def doctor() -> int:
         print(f"  soundfile: ok ({soundfile.__version__}, libsndfile {soundfile.__libsndfile_version__})")
     except ModuleNotFoundError:
         print("  soundfile: não instalado — python -m pip install soundfile")
+
+    # Formatos de saída: a mesma pergunta que a tela responde com selos
+    # ("MP3 indisponível" sem motivo) — aqui com o motivo escrito.
+    from . import export
+
+    print("\n  Formatos de saída:")
+    for fmt in export.FORMATS:
+        ok, motivo = export.check_export_capabilities(fmt)
+        print(f"  [{'ok  ' if ok else '-   '}] {fmt.upper():<4}  {motivo}")
     return 0
 
 

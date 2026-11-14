@@ -5,9 +5,9 @@ no projeto existente, com as decisões técnicas, as licenças conferidas, o que
 foi testado e o que continua pendente. Tudo que aparece aqui existe no código
 e tem teste; o que não foi feito está na seção "Pendências" — sem promessa.
 
-Data desta versão: novembro de 2026 · versão **0.1.30** (o projeto multitrack
-entrou na 0.1.29; a 0.1.30 corrige a ficha que o navegador baixava em vez de
-abrir).
+Data desta versão: novembro de 2026 · versão **0.1.31** (o projeto multitrack
+entrou na 0.1.29; a 0.1.30 fez a ficha abrir em vez de baixar; a 0.1.31 resolve
+o MP3 sem ffmpeg, o MP4 e o selo do Spleeter).
 
 ---
 
@@ -138,6 +138,33 @@ mrq-vs serve            # abre a interface no navegador
 6. **Salvar projeto** grava tudo em `projeto.mrqvs.json`; reabrir a música pela
    biblioteca traz o estado de volta.
 
+### 4.1.1 Formato: MP3 por padrão, e por quê
+
+O seletor abre em **MP3**. A conta, medida numa música de 20 s com 5 arquivos
+de áudio (4 stems + L/R):
+
+| formato | pasta inteira |
+|---|---|
+| WAV 16 bits | 12,3 MB |
+| MP3 320 kbps | 4,5 MB |
+
+Três coisas precisaram mudar para esse número ser verdade:
+
+1. **MP3 sem ffmpeg.** O encoder agora é o `lameenc` (wheel de 190 kB com a
+   LAME). Antes, sem ffmpeg no sistema, o selo dizia "MP3 indisponível" numa
+   tela que separa áudio — e o usuário não tinha como exportar o formato mais
+   comum que existe. O ffmpeg continua sendo usado quando está presente.
+2. **O `ENSAIO_LR` segue o formato.** Ele era sempre WAV PCM_16 e virava o
+   maior arquivo da pasta. Agora sai no formato escolhido (MP3 192 kbps quando
+   o resto é MP3).
+3. **MP4 precisa de vídeo.** Continua dependendo do ffmpeg (`libx264` +
+   `showwaves`): é o único dos três que não dá para fazer sem ele. Com
+   `pip install "mrq-vs[video]"` o wheel `imageio-ffmpeg` traz o binário.
+
+WAV continua a opção para editar em DAW, e a tela avisa quando o encoder não
+existe nesta máquina — nesse caso ela volta sozinha para WAV em vez de deixar
+a separação inteira terminar em erro.
+
 ### 4.2 Terminal
 ```bash
 mrq-vs "https://youtu.be/XXXX"                  # separa e já cria o projeto
@@ -180,7 +207,7 @@ pip install vosk                # Apache-2.0 (precisa do modelo em português)
 ## 5. Testes
 
 ```
-303 passed, 1 skipped        (pytest, ~30 s)
+310 passed, 1 skipped        (pytest, ~32 s)
 ruff check src tests         All checks passed
 ```
 
@@ -220,7 +247,18 @@ ids criados por JS, e `textarea` no parser de `innerHTML`.
     `window.open` **baixava** o HTML em vez de abrir a aba para imprimir —
     `.html`, `.txt`, `.csv` e `.md` passaram a ser servidos com o tipo certo e
     `Content-Disposition: inline`. O `.mrqvs.json` continua sendo download de
-    propósito: HTML servido na mesma origem pode carregar script.
+    propósito: HTML servido na mesma origem pode carregar script;
+11. o selo "MP3 indisponível" sem ffmpeg: MP3 agora tem encoder próprio
+    (`lameenc`), verificado decodificando o arquivo gerado;
+12. o texto do Spleeter dizia que ele "só existe até o Python 3.11" e mandava
+    trocar de motor. Testado: `pip install spleeter` instala e separa no 3.11
+    (4 stems de 12 s). O que falta numa máquina sem ffmpeg é o binário — e,
+    pior, o Spleeter **sai com código 0** mesmo sem ele, então a tela mostrava
+    "terminou sem gerar stems" (sintoma) em vez do motivo. Agora a checagem é
+    pelo texto do log, a mensagem diz o que instalar, e a pasta do ffmpeg que o
+    app já conhece entra no PATH do Spleeter;
+13. o `ENSAIO_LR` era sempre WAV PCM_16, mesmo com MP3 escolhido — ficava
+    maior que todos os stems somados.
 
 ---
 

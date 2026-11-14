@@ -691,3 +691,45 @@ def test_deslocar_e_fade_da_faixa_vao_para_o_projeto():
     assert abs(info["depois"] - 0.30) < 1e-9        # deslocou a partir dele
     assert info["fadeOut"] == 0.4
     assert info["zerado"] == 0 and info["semFade"] == 0
+
+
+def test_formato_padrao_e_mp3_mas_cai_para_wav_sem_encoder():
+    """MP3 é o padrão (leve, para o celular); sem encoder, WAV.
+
+    Deixar MP3 marcado numa máquina sem encoder faria o usuário esperar a
+    separação inteira para receber um erro no fim. A tela confere o que o
+    servidor diz em `formatos_ok` e volta para WAV, avisando por quê.
+    """
+    saida = _rodar_node(
+        """
+        const {montar} = require("./harness");
+        const status = (mp3Ok) => ({
+          versao: "0.1.31",
+          stems: ["vocals", "drums"],
+          modelos: {"htdemucs_6s": ["vocals", "drums"]},
+          modelos_nota: {},
+          backends: [{name: "dsp-fallback", available: true, detail: "ok", opcional: false}],
+          formatos_ok: {wav: true, mp3: mp3Ok, mp4: false},
+        });
+        const rodar = async (mp3Ok) => {
+          const env = montar({}, {fetch: async () => ({ok: true, json: async () => status(mp3Ok)})});
+          await env.sandbox.carregarStatus();
+          const sel = env.doc.getElementById("fmt");
+          const dica = env.doc.getElementById("fmtDica");
+          return {valor: sel.value, opcoes: [...sel.querySelectorAll("option")].map(o => o.value),
+                  dica: dica ? dica.textContent : null};
+        };
+        (async () => {
+          const comMp3 = await rodar(true);
+          const semMp3 = await rodar(false);
+          console.log("RESULTADO:" + JSON.stringify({comMp3, semMp3}));
+        })();
+        """
+    )
+    assert saida["comMp3"]["valor"] == "mp3"
+    assert saida["comMp3"]["dica"] in (None, "")
+    # sem encoder: volta para WAV e diz o motivo, em vez de falhar no fim
+    assert saida["semMp3"]["valor"] == "wav"
+    assert "MP3" in saida["semMp3"]["dica"]
+    # a lista continua oferecendo os três formatos
+    assert saida["comMp3"]["opcoes"] == ["mp3", "wav", "mp4"]

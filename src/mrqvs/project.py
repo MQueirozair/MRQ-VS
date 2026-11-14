@@ -477,12 +477,15 @@ def run(options: ProjectOptions, progress=None) -> ProjectResult:
             # in-ear recebe só a esquerda, a mesa só a direita.
             if options.exportar_lr and options.click:
                 try:
-                    lr_path = folder / f"{folder.name}_ENSAIO_LR.wav"
+                    # O L/R segue o formato escolhido. Com MP3 (o padrão, para
+                    # caber no celular), mantê-lo em WAV fazia dele o MAIOR
+                    # arquivo da pasta — maior que todos os stems somados.
+                    lr_path = folder / f"{folder.name}_ENSAIO_LR.{options.fmt}"
                     clique_tmp = apoio / "clique.wav"
                     guia_tmp = guia_path
                     ensaio = _somar_audio(clique_tmp, guia_tmp, sample_rate=sample_rate)
                     guia_mod.escrever_lr(
-                        lr_path, sample_rate, mix, ensaio, duration
+                        lr_path, sample_rate, mix, ensaio, duration, formato=options.fmt
                     )
                     lr = lr_path
                     written["ensaio_lr"] = lr_path  # entra na playlist e nos stems

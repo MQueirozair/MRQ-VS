@@ -111,6 +111,13 @@ Este pacote não instala nada no sistema. Três passos:
    Se faltar numpy/soundfile:
        python -m pip install numpy soundfile
 
+   Para exportar MP3 sem instalar ffmpeg (o LAME vai junto):
+       python -m pip install lameenc
+
+   Para MP4 (e para ler m4a/webm do YouTube) o ffmpeg é obrigatório:
+   instale pelo sistema, ou traga um embutido com
+       python -m pip install imageio-ffmpeg
+
 3. Pronto. Use direto:
        python mrq-vs-{VERSION}.pyz "https://youtu.be/XXXXXXXXXXX"
        python mrq-vs-{VERSION}.pyz serve        # interface no navegador

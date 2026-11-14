@@ -958,9 +958,14 @@ python -m pip install demucs</pre>
 
     <div class="row">
       <div><label for="fmt">Formato</label>
-        <select id="fmt"><option value="wav">WAV (estúdio)</option>
-        <option value="mp3">MP3 (celular)</option><option value="mp4">MP4 (vídeo)</option></select></div>
+        <!-- Padrão MP3: é o formato que o músico leva no celular e pesa ~10x
+             menos que o WAV (um ensaio de 40 stems em WAV não cabe no
+             telefone). WAV continua a primeira opção da lista, para quem vai
+             editar — a escolha é dele, o padrão é o mais leve. -->
+        <select id="fmt"><option value="mp3" selected>MP3 (leve — celular)</option>
+        <option value="wav">WAV (estúdio)</option><option value="mp4">MP4 (vídeo)</option></select></div>
       <div><label for="model">Modelo</label><select id="model"></select></div>
+      <div class="muted" id="fmtDica" style="grid-column:span 4;font-size:12px"></div>
       <div style="grid-column:span 2"><label for="destino">Onde salvar (vazio = pasta do programa)</label>
         <input id="destino" type="text" placeholder="ex.: D:\\multitracks"></div>
       <div><label for="bpm">BPM (opcional)</label>
@@ -1550,6 +1555,16 @@ async function instalarLeve(){
 
 async function carregarStatus(){
   STATUS = await (await fetch("/api/status")).json();
+  // O padrão é MP3 (mais leve), mas só vale se o encoder existe NESTA
+  // máquina: sem encoder nenhum, deixar MP3 marcado faria a separação
+  // terminar em erro no fim do trabalho. Nesse caso a lista volta para WAV,
+  // que sempre grava.
+  const selFmt = $("fmt");
+  if (selFmt && STATUS.formatos_ok && !STATUS.formatos_ok.mp3 && selFmt.value === "mp3"){
+    selFmt.value = "wav";
+    const dica = $("fmtDica");
+    if (dica) dica.textContent = "MP3 indisponível nesta máquina (falta encoder): usando WAV.";
+  }
   const sel = $("model");
   sel.innerHTML = "";
   const notas = STATUS.modelos_nota || {};

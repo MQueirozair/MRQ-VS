@@ -377,6 +377,7 @@ def escrever_lr(
     duracao: float,
     ganho_banda: float = 0.9,
     ganho_ensaio: float = 0.9,
+    formato: str = "wav",
 ) -> None:
     """Grava o par estéreo que o CueWee chama de L/R.
 
@@ -421,5 +422,19 @@ def escrever_lr(
 
     from pathlib import Path
 
-    Path(caminho).parent.mkdir(parents=True, exist_ok=True)
-    sf.write(caminho, estereo, sample_rate, subtype="PCM_16")
+    alvo = Path(caminho)
+    if formato and formato != "wav":
+        # O L/R é o arquivo que o músico leva no celular: quando ele escolhe
+        # MP3, este é justamente o que não pode sair em WAV. Antes ele era
+        # SEMPRE PCM_16 — e ficava maior que todos os stems somados.
+        from . import export
+
+        export.export_audio(
+            estereo,
+            sample_rate,
+            alvo.with_suffix(""),
+            export.ExportOptions(fmt=formato, bitrate="192k"),
+        )
+        return
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(alvo, estereo, sample_rate, subtype="PCM_16")
