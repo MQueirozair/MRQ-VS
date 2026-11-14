@@ -198,13 +198,27 @@
   .bib-rodape .mini{font-size:11px;padding:5px 9px}
   /* Botao de recolher a secao (referencia: seta da sidebar do CueWee).
      O titulo inteiro e clicavel, nao so a setinha: alvo grande para o dedo. */
-  .lateral h4 .recolher{margin-left:auto;display:flex;align-items:center;gap:5px;
+  .lateral h4 .recolher{margin-left:auto;display:flex;align-items:center;gap:6px;
     background:none;border:0;padding:2px 4px;border-radius:6px;cursor:pointer;
     color:var(--muted);font:inherit;font-size:11px;letter-spacing:0;
     text-transform:none}
   .lateral h4 .recolher:hover{color:#e8edf4;background:#1b222b}
+  /* o contador encostava no texto ("1música" na captura): espaço próprio e
+     cápsula discreta para separar número de palavra */
+  #bibContagem:not(:empty){padding:1px 6px;border-radius:999px;
+    background:#1b222b;border:1px solid var(--line);font-size:10px;
+    font-variant-numeric:tabular-nums;letter-spacing:0}
   .lateral h4 .recolher svg{transition:transform .18s ease}
   /* recolhido: esconde a lista e encolhe a lateral, sobrando so o titulo */
+  .bib-carregando{display:flex;align-items:center;gap:8px}
+  .bib-carregando::before{content:"";width:10px;height:10px;border-radius:50%;
+    border:2px solid #2a333f;border-top-color:var(--accent);flex:none;
+    animation:girar .8s linear infinite}
+  @keyframes girar{to{transform:rotate(360deg)}}
+  /* quem prefere menos animação continua vendo o aviso, sem o giro */
+  @media (prefers-reduced-motion:reduce){
+    .bib-carregando::before{animation:none;border-top-color:var(--accent)}
+  }
   .lateral.recolhida{max-height:none}
   .lateral.recolhida .bib-lista,
   .lateral.recolhida .bib-rodape,
@@ -390,6 +404,30 @@
   .faixa.compacta .ctrl-rot{width:18px;font-size:8px}
   .faixa.compacta .ctrl-val{width:18px;font-size:8.5px}
   .faixa.compacta .faixa-pan{width:34px;flex:1}
+  /* NÍVEL FINAL (`.minima`): o degrau que faz TODAS as faixas caberem.
+     A linha vira uma faixa horizontal compacta: o topo (cor, nome, M/S/⋯)
+     divide a largura com os controles de VOL e PAN, os rótulos somem, o
+     medidor sai de cena e o espaçamento é apertado — ~30 px por linha em vez
+     de 76 px, que é o que faz 12 faixas caberem numa tela de 1080p sem rolar.
+     Nada de áudio é escondido: volume e pan continuam ali, e o resto fica no
+     ⋯ da faixa. */
+  .faixa.minima{--h-faixa:30px;gap:6px;display:flex;flex-direction:row;
+    align-items:center;padding:0 8px 0 9px;overflow:hidden}
+  .faixa.minima .faixa-topo{flex:1;min-width:0;padding:0;gap:5px}
+  .faixa.minima .faixa-nome{font-size:10.5px}
+  .faixa.minima .faixa-ms{gap:3px}
+  .faixa.minima .faixa-ms button{width:17px;height:15px;font-size:8.5px}
+  .faixa.minima .faixa-sliders{flex:none;flex-direction:row;align-items:center;
+    gap:5px;padding:0}
+  .faixa.minima .faixa-controles{padding:0;gap:4px}
+  .faixa.minima .ctrl-rot{display:none}
+  .faixa.minima .ctrl-val{width:13px;font-size:7.5px}
+  /* largura fixa e curta: no painel estreito (--painel:150px) o nome cede
+     espaço com reticências, mas os controles nunca empurram a linha */
+  .faixa.minima .faixa-vol,.faixa.minima .faixa-pan{height:8px;width:32px;
+    flex:none;min-width:0}
+  .faixa.minima .faixa-medidor{display:none}
+  .faixa.minima .btOlho{display:none}
   .faixa-controles{display:flex;align-items:center;gap:5px;padding:1px 8px 0 9px;flex:none}
   .ctrl-rot{font-size:8.5px;letter-spacing:.06em;color:#6b7787;width:22px;flex:none;
     font-weight:600}
@@ -779,8 +817,11 @@
         </svg>
       </button>
     </h4>
+    <!-- O estado inicial diz "carregando", não "vazio". A captura do usuário
+         mostrava "Nada separado ainda" com a música existindo: era o HTML
+         aparecendo antes da resposta de /api/biblioteca. -->
     <div class="bib-lista" id="bibLista">
-      <div class="bib-vazio">Nada separado ainda.<br>Assim que você separar uma música, ela aparece aqui para reabrir com um clique.</div>
+      <div class="bib-vazio bib-carregando" id="bibCarregando">Procurando músicas no disco…</div>
     </div>
     <div class="bib-rodape" id="bibRodape">
       <button class="secundario mini" id="bibAtualizar" type="button">atualizar</button>
@@ -1064,7 +1105,12 @@ python -m pip install demucs</pre>
         </label>
         <label class="ferr-campo" title="Altura das linhas de faixa">
           <span>Altura</span>
-          <input id="fAltura" class="ferr-range ferr-range-curto" type="range" min="54" max="140" step="2" value="76">
+          <input id="fAltura" class="ferr-range ferr-range-curto" type="range" min="30" max="140" step="2" value="76">
+          <!-- Caber todas SEM rolar. O usuário pediu "mostrar todas as tracks
+               por completo": isto encolhe as linhas até a última aparecer. -->
+          <button class="ferr ferr-curto" id="fFaixasTudo" type="button"
+                  title="Mostrar todas as faixas na tela, sem rolar"
+                  aria-pressed="false">Tudo</button>
         </label>
         <span class="ferr-dica" id="ferrDica"></span>
         <button class="ferr" id="fMenu" type="button" title="Esconder o menu lateral e aumentar a área de trabalho" aria-pressed="false">▤</button>
@@ -1282,12 +1328,24 @@ function capaBib(v){
   return v.capa ? `/api/bib/capa?p=${encodeURIComponent(v.capa)}` : "";
 }
 
-function desenharBiblioteca(){
+function desenharBiblioteca(falhou){
   const caixa = $("bibLista");
   if (!caixa) return;
+  if (falhou){
+    // Falha de leitura NÃO é "nada separado": dizer isso faria o usuário
+    // achar que perdeu as músicas. O aviso oferece a ação de tentar de novo.
+    caixa.innerHTML = `<div class="bib-vazio">Não consegui ler a pasta das músicas.<br>
+      Verifique se o programa continua aberto e use <b>atualizar</b>.</div>`;
+    if ($("bibContagem")) $("bibContagem").textContent = "";
+    if ($("conta")) $("conta").textContent = "—";
+    return;
+  }
   $("bibContagem").textContent = BIB.length ? `${BIB.length}` : "";
   $("conta").textContent = BIB.length ? `${BIB.length} música${BIB.length > 1 ? "s" : ""}` : "—";
   if (!BIB.length) {
+    // "Nada separado ainda" só DEPOIS de o servidor responder. Antes disso o
+    // estado é `bib-carregando` (vem no HTML) — senão a lista parece vazia
+    // mesmo com músicas no disco, que foi o que a captura mostrou.
     caixa.innerHTML = `<div class="bib-vazio">Nada separado ainda.<br>
       Assim que você separar uma música, ela aparece aqui para reabrir com um clique.</div>`;
     return;
@@ -1318,12 +1376,13 @@ function desenharBiblioteca(){
 }
 
 async function carregarBiblioteca(){
+  let falhou = false;
   try {
     const r = await fetch("/api/biblioteca");
     const d = await r.json();
     BIB = d.versoes || [];
-  } catch { BIB = []; }
-  desenharBiblioteca();
+  } catch { BIB = []; falhou = true; }
+  desenharBiblioteca(falhou);
 }
 
 async function abrirDaBiblioteca(v){
@@ -2948,33 +3007,108 @@ function studioAtualizarRolagemPainel(){
   const painel = $("painelFaixas");
   const caixa = $("studioPainel");
   if (!painel || !caixa) return;
-  const esconde = painel.scrollHeight - painel.clientHeight - painel.scrollTop > 2;
-  caixa.classList.toggle("tem-mais", esconde && painel.scrollHeight > painel.clientHeight + 2);
+  // Reaplica antes de medir: a janela pode ter mudado de altura (redimensionar,
+  // girar o tablet, fechar o painel lateral) e as faixas precisam se reencaixar
+  // sem esperar outro evento. `studioAplicarAltura` é barato e idempotente.
+  studioAplicarAltura();
+  const total = painel.querySelectorAll(".faixa").length;
+  const altura = Math.max(1, Studio.alturaAuto || alturaBase());
+  // "tem mais" olha o CONTEÚDO DE FAIXAS, não o scrollHeight: com as linhas
+  // encaixadas o painel pode ter pixels de folga/sobra, e o degradê piscava
+  // apontando faixa escondida que não existia.
+  const cabeTudo = total * altura <= painel.clientHeight + 1;
+  const esconde = !cabeTudo &&
+    painel.scrollHeight - painel.clientHeight - painel.scrollTop > 2;
+  caixa.classList.toggle("tem-mais", esconde);
   const contagem = $("painelContagem");
   if (contagem){
-    const total = painel.querySelectorAll(".faixa").length;
     const visiveis = painel.clientHeight > 0
-      ? Math.max(1, Math.floor(painel.clientHeight / Math.max(1, alturaBase())))
+      ? Math.max(1, Math.floor(painel.clientHeight / altura))
       : total;
     contagem.textContent = total > visiveis
       ? `${total} faixas · ${visiveis} à vista`
       : (total ? `${total} faixas` : "");
     contagem.title = total > visiveis
-      ? `há ${total - visiveis} faixa(s) abaixo — role o painel ou diminua a altura das linhas`
+      ? `há ${total - visiveis} faixa(s) abaixo — clique em Tudo para caber todas`
       : "todas as faixas estão à vista";
+    if ($("fFaixasTudo"))
+      $("fFaixasTudo").setAttribute("aria-pressed", Studio._cabeTudo ? "true" : "false");
   }
 }
 
-function studioSincronizarAlturas(){
-  const base = alturaBase();
-  const compacta = base < 68;
-  for (const f of todasAsFaixas()){
-    f.linha.style.height = base + "px";
-    f.linha.style.minHeight = base + "px";
-    f.trilha.style.height = base + "px";
-    f.trilha.style.minHeight = base + "px";
-    f.linha.classList.toggle("compacta", compacta);
+/** Quantas faixas do painel. */
+function painelFaixasQtd(){
+  const painel = $("painelFaixas");
+  return painel ? painel.querySelectorAll(".faixa").length : 0;
+}
+
+/** Distribui as faixas no espaço disponível.
+ *
+ *  O usuário reclamou que "não mostra todas as tracks por completo": a altura
+ *  de linha era FIXA (--h-linha: 76 px, ou 72/66 px por breakpoint) e o que
+ *  sobrava ia para a rolagem — numa janela baixa isso dava 3 de 7 faixas.
+ *
+ *  Agora a conta é de trás para frente, descendo um degrau por vez até a
+ *  ÚLTIMA faixa caber. O último degrau (30 px) é o modo mínimo de uma linha.
+ *
+ *  `Studio.alturaAuto` guarda o valor calculado; `Studio.alturaLinha` é a
+ *  preferência do usuário (slider) e nunca é sobrescrita.
+ */
+function calcularAlturaQueCabe(){
+  const painel = $("painelFaixas");
+  const total = todasAsFaixas().length;
+  const desejada = alturaBase();
+  if (!painel || !painel.clientHeight || !total)
+    return {altura: desejada, minima: false, cabe: true};
+  const disponivel = painel.clientHeight;
+  // Preferência explícita do usuário (slider Altura) manda: ele esticou as
+  // linhas de propósito, então respeitamos e deixamos o painel rolar. Quem
+  // quer tudo à vista usa o botão "Tudo", que zera a preferência.
+  const preferida = Studio.alturaLinha || 0;
+  if (preferida > 0){
+    return {altura: preferida, minima: preferida < 40,
+            cabe: total * preferida <= disponivel};
   }
+  for (const nivel of [desejada, 76, 66, 54, 44, 38, 30]){
+    if (nivel > desejada) continue;
+    if (total * nivel <= disponivel)
+      return {altura: nivel, minima: nivel < 40, cabe: true};
+  }
+  // Nem numa linha de 30 px cabe: rolagem, mas sem sumir com o conteúdo.
+  return {altura: 30, minima: true, cabe: false};
+}
+
+/** Aplica a altura calculada às faixas. Barato e idempotente: pode rodar a
+ *  cada quadro de rolagem/redimensionamento sem redesenhar as ondas. */
+function studioAplicarAltura(){
+  const plano = calcularAlturaQueCabe();
+  Studio.alturaAuto = plano.altura;
+  Studio.alturaMinima = plano.minima;
+  const base = plano.altura;
+  const compacta = base < 68 || plano.minima;  // <68 = versão de 2 linhas curtas
+  const qtd = painelFaixasQtd();
+  if (plano.altura !== Studio._alturaAplicada ||
+      plano.minima !== Studio._minimaAplicada ||
+      qtd !== Studio._qtdAplicada){
+    for (const f of todasAsFaixas()){
+      f.linha.style.height = base + "px";
+      f.linha.style.minHeight = base + "px";
+      f.trilha.style.height = base + "px";
+      f.trilha.style.minHeight = base + "px";
+      f.linha.classList.toggle("compacta", compacta);
+      f.linha.classList.toggle("minima", plano.minima);
+    }
+    Studio._alturaAplicada = plano.altura;
+    Studio._minimaAplicada = plano.minima;
+    Studio._qtdAplicada = qtd;
+    if ($("fAltura") && !Studio.alturaLinha) $("fAltura").value = String(base);
+  }
+  Studio._cabeTudo = plano.cabe;
+  return plano;
+}
+
+function studioSincronizarAlturas(){
+  studioAplicarAltura();
   studioDesenharFaixas();
   studioDesenharTrilhas();
   studioPosicionarCabeca();
@@ -2982,7 +3116,9 @@ function studioSincronizarAlturas(){
 }
 
 function studioDefinirAltura(px){
-  Studio.alturaLinha = Math.max(54, Math.min(160, Math.round(px)));
+  // 30 px = modo mínimo (uma linha). O teto é 140, o mesmo do slider: antes o
+  // código aceitava 160 e o slider só oferecia 140, e os dois discordavam.
+  Studio.alturaLinha = Math.max(30, Math.min(140, Math.round(px)));
   studioSincronizarAlturas();
 }
 
@@ -4747,6 +4883,18 @@ function studioLigarBotoes(){
     if ($("ferrDica")) $("ferrDica").textContent = "altura " + Math.round(alturaBase()) + "px";
     try{ localStorage.setItem("mrqvs.alturaLinha", String(Studio.alturaLinha)); }catch(_){}
   };
+
+  // --- todas as faixas na tela --------------------------------------
+  on("fFaixasTudo", () => {
+    Studio.alturaLinha = 0;            // volta ao automático: caber todas
+    studioSincronizarAlturas();
+    if ($("fAltura")) $("fAltura").value = String(Studio.alturaAuto || alturaBase());
+    if ($("ferrDica")) $("ferrDica").textContent =
+      (Studio._cabeTudo ? "todas as faixas à vista" : "não coube tudo — role o painel") +
+      " · " + Math.round(Studio.alturaAuto || alturaBase()) + "px";
+    if ($("fFaixasTudo")) $("fFaixasTudo").setAttribute("aria-pressed", "true");
+    try{ localStorage.removeItem("mrqvs.alturaLinha"); }catch(_){}
+  });
 
   // --- painel lateral / modo ao vivo --------------------------------
   // Dois botões, UMA ação: o do cabeçalho (sempre visível) e o da barra do

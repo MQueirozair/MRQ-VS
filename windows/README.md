@@ -4,7 +4,7 @@
 
 `MRQ-VS-Setup-windows-x64.exe` é gerado pelo Inno Setup 6 a partir de
 `windows/installer.iss` (no CI, no runner `windows-latest`) e publicado em
-**GitHub Releases → v0.1.26**. Ele:
+**GitHub Releases → v0.1.27**. Ele:
 
 * instala em `%LOCALAPPDATA%\MRQ Audio Studio` (sem pedir Administrador);
 * cria o **ícone na Área de Trabalho** e no Menu Iniciar, com `mrq-vs.ico`;

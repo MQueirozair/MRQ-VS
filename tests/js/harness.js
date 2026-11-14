@@ -93,6 +93,7 @@ function montar(dados, opcoes) {
     "expGuia", "expRelatorio", "menuExportar", "studioExportar",
     "studioAoVivo", "ferrDica", "cifraEditar", "dicaFlutuante",
     "fMenuTopo", "painelContagem",
+    "fFaixasTudo", "bibCarregando",
   ];
   for (const id of ids) {
     const el = doc.criar(id, id === "fImportarInput" ? "input" : "div");
